@@ -382,8 +382,10 @@ export default function Receiving() {
                   <TableCell className="text-sm">{r.batch_number || '—'}</TableCell>
                   <TableCell>
                     {r.packing_slip_url ? (
-                      <a href={r.packing_slip_url} target="_blank" rel="noopener noreferrer" title="View packing slip">
-                        <ExternalLink className="w-4 h-4 text-blue-600 hover:text-blue-800" />
+                      <a href={r.packing_slip_url} target="_blank" rel="noopener noreferrer">
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+                          <ExternalLink className="w-3 h-3" />View Slip
+                        </Button>
                       </a>
                     ) : '—'}
                   </TableCell>
