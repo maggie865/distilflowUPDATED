@@ -19,6 +19,7 @@ import Bottling from '@/pages/Bottling';
 import Inventory from '@/pages/Inventory';
 import RawMaterials from '@/pages/RawMaterials';
 import BatchTracker from '@/pages/BatchTracker';
+import Tanks from '@/pages/Tanks';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -56,6 +57,7 @@ const AuthenticatedApp = () => {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/raw-materials" element={<RawMaterials />} />
           <Route path="/batch-tracker" element={<BatchTracker />} />
+          <Route path="/tanks" element={<Tanks />} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />

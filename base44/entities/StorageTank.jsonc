@@ -1,0 +1,67 @@
+{
+  "name": "StorageTank",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Tank name (A, B, C, D, E, F, H, X, Y)"
+    },
+    "capacity_litres": {
+      "type": "number",
+      "description": "Total tank capacity in litres"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "maceration_dilution",
+        "final_product_storage",
+        "diluted_ethanol",
+        "spare"
+      ],
+      "description": "Purpose of this tank"
+    },
+    "location": {
+      "type": "string",
+      "enum": [
+        "indoor",
+        "outdoor"
+      ],
+      "description": "Tank location"
+    },
+    "current_volume": {
+      "type": "number",
+      "description": "Current liquid volume in litres"
+    },
+    "current_abv": {
+      "type": "number",
+      "description": "Current ABV % of contents"
+    },
+    "current_product": {
+      "type": "string",
+      "description": "Name of current product in tank"
+    },
+    "current_batch": {
+      "type": "string",
+      "description": "Current master batch or batch number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "empty",
+        "in_use",
+        "cleaning"
+      ],
+      "default": "empty",
+      "description": "Current tank status"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "name",
+    "capacity_litres",
+    "purpose"
+  ]
+}

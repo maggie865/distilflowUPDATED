@@ -1,0 +1,72 @@
+{
+  "name": "TankMovement",
+  "type": "object",
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of movement"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "fill",
+        "empty",
+        "transfer_in",
+        "transfer_out",
+        "bottling_draw"
+      ],
+      "description": "Type of movement"
+    },
+    "tank_name": {
+      "type": "string",
+      "description": "Tank this movement applies to"
+    },
+    "counterpart_tank": {
+      "type": "string",
+      "description": "Other tank involved in a transfer (source or destination)"
+    },
+    "volume_litres": {
+      "type": "number",
+      "description": "Volume moved in litres"
+    },
+    "abv": {
+      "type": "number",
+      "description": "ABV % of liquid moved"
+    },
+    "lals": {
+      "type": "number",
+      "description": "LALs moved"
+    },
+    "product": {
+      "type": "string",
+      "description": "Product name"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Batch or lot number for traceability"
+    },
+    "ethanol_lot": {
+      "type": "string",
+      "description": "Ethanol supplier lot number"
+    },
+    "botanical_lot": {
+      "type": "string",
+      "description": "Botanical supplier lot number"
+    },
+    "operator": {
+      "type": "string",
+      "description": "Person who performed the movement"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "date",
+    "action",
+    "tank_name",
+    "volume_litres"
+  ]
+}

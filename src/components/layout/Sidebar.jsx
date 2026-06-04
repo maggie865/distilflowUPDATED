@@ -8,6 +8,7 @@ import {
   Warehouse, 
   Package,
   GitBranch,
+  Cylinder,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const navItems = [
   { label: 'Dilutions', icon: Droplets, path: '/dilutions' },
   { label: 'Distillation', icon: Flame, path: '/distillation' },
   { label: 'Bottling', icon: Wine, path: '/bottling' },
+  { label: 'Tank Farm', icon: Cylinder, path: '/tanks' },
   { label: 'Batch Tracker', icon: GitBranch, path: '/batch-tracker' },
   { label: 'Raw Materials', icon: Package, path: '/raw-materials' },
   { label: 'Inventory', icon: Warehouse, path: '/inventory' },
