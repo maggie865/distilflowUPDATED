@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2 } from 'lucide-react';
+
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -27,7 +28,6 @@ export default function Receiving() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [extracting, setExtracting] = useState(false);
-  const [uploadingToDrive, setUploadingToDrive] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
   const queryClient = useQueryClient();
 
@@ -64,15 +64,11 @@ export default function Receiving() {
     if (!open) setOpen(true);
 
     try {
-      // Upload to base44 for OCR extraction
+      // Upload file for storage and OCR extraction
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
 
-      // Upload to Google Drive in parallel
-      setUploadingToDrive(true);
-      const driveRes = base44.functions.invoke('uploadPackingSlip', {
-        file,
-        fileName: `packing_slip_${Date.now()}_${file.name}`,
-      });
+      // Store the file URL immediately
+      setForm(prev => ({ ...prev, packing_slip_url: file_url }));
 
       // Extract data from packing slip
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
@@ -115,18 +111,10 @@ export default function Receiving() {
       } else {
         toast.error('Could not extract data from the file. Please fill in manually.');
       }
-
-      // Wait for Drive upload to finish
-      const driveResult = await driveRes;
-      if (driveResult?.data?.view_url) {
-        setForm(prev => ({ ...prev, packing_slip_url: driveResult.data.view_url }));
-        toast.success('Packing slip saved to Google Drive');
-      }
     } catch (err) {
       toast.error('Upload failed. Please try again.');
     } finally {
       setExtracting(false);
-      setUploadingToDrive(false);
       e.target.value = '';
     }
   };
@@ -250,13 +238,6 @@ export default function Receiving() {
             </div>
           )}
 
-          {uploadingToDrive && !extracting && (
-            <div className="flex items-center gap-3 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 mb-2">
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
-              <p className="text-sm text-blue-700">Saving to Google Drive…</p>
-            </div>
-          )}
-
           {!extracting && form.material_name && (
             <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2">
               <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
@@ -274,7 +255,7 @@ export default function Receiving() {
               className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-2.5 mb-2 text-sm text-blue-700 hover:bg-blue-100 transition-colors"
             >
               <ExternalLink className="w-4 h-4 flex-shrink-0" />
-              View packing slip on Google Drive
+              View packing slip
             </a>
           )}
 
