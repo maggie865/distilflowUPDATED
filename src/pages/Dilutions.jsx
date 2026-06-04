@@ -9,33 +9,49 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Calculator } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Calculator, FlaskConical, Droplets } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 
-const BLANK_FORM = {
+// Tanks allowed per dilution type
+const ETHANOL_TANKS = ['X', 'Y'];
+const HEADS_TANKS = ['E', 'F', 'H'];
+
+const BLANK_ETHANOL = {
   batch_number: '',
   date: new Date().toISOString().split('T')[0],
-  source_type: 'receiving',   // 'receiving' | 'master_batch'
-  source_id: '',              // id of selected Receiving or MasterBatch record
+  source_id: '',
   input_ethanol_volume: '',
   input_abv: '',
   water_added: '',
-  tank_id: '',                // StorageTank id
+  tank_id: '',
+  status: 'completed',
+  notes: '',
+};
+
+const BLANK_HEADS = {
+  batch_number: '',
+  date: new Date().toISOString().split('T')[0],
+  source_tank_id: '',
+  input_ethanol_volume: '',
+  input_abv: '',
+  water_added: '',
   status: 'completed',
   notes: '',
 };
 
 export default function Dilutions() {
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(BLANK_FORM);
+  const [openType, setOpenType] = useState(null); // 'ethanol' | 'heads'
+  const [ethanolForm, setEthanolForm] = useState(BLANK_ETHANOL);
+  const [headsForm, setHeadsForm] = useState(BLANK_HEADS);
   const queryClient = useQueryClient();
 
-  const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const setE = (f, v) => setEthanolForm(p => ({ ...p, [f]: v }));
+  const setH = (f, v) => setHeadsForm(p => ({ ...p, [f]: v }));
 
-  // Data fetches
   const { data: dilutions = [], isLoading } = useQuery({
     queryKey: ['dilutions'],
     queryFn: () => base44.entities.Dilution.list('-date', 50),
@@ -46,271 +62,382 @@ export default function Dilutions() {
     queryFn: () => base44.entities.Receiving.filter({ material_type: 'ethanol' }, '-date_received', 50),
   });
 
-  const { data: masterBatches = [] } = useQuery({
-    queryKey: ['masterBatches'],
-    queryFn: () => base44.entities.MasterBatch.list('-date_started', 50),
-  });
-
   const { data: tanks = [] } = useQuery({
     queryKey: ['storageTanks'],
     queryFn: () => base44.entities.StorageTank.list('name', 50),
   });
 
-  // Auto-fill ABV when source is selected
-  const handleSourceChange = (id) => {
-    set('source_id', id);
-    if (form.source_type === 'receiving') {
-      const rec = receivings.find(r => r.id === id);
-      if (rec) {
-        set('input_abv', rec.abv_percent || '');
-        set('input_ethanol_volume', rec.quantity || '');
-      }
-    } else {
-      const mb = masterBatches.find(m => m.id === id);
-      if (mb) {
-        set('input_abv', mb.target_abv || '');
-      }
+  // Filtered tank lists
+  const ethanolDestTanks = tanks.filter(t => ETHANOL_TANKS.includes(t.name));
+  const headsSrcTanks = tanks.filter(t => HEADS_TANKS.includes(t.name));
+
+  // --- Ethanol Dilution calcs ---
+  const eInputLALs = ethanolForm.input_ethanol_volume && ethanolForm.input_abv
+    ? parseFloat(ethanolForm.input_ethanol_volume) * parseFloat(ethanolForm.input_abv) / 100 : 0;
+  const eOutputVol = (parseFloat(ethanolForm.input_ethanol_volume) || 0) + (parseFloat(ethanolForm.water_added) || 0);
+  const eOutputABV = eOutputVol > 0 ? (eInputLALs / eOutputVol) * 100 : 0;
+  const eSelectedTank = tanks.find(t => t.id === ethanolForm.tank_id);
+
+  // --- Heads Dilution calcs ---
+  const hInputLALs = headsForm.input_ethanol_volume && headsForm.input_abv
+    ? parseFloat(headsForm.input_ethanol_volume) * parseFloat(headsForm.input_abv) / 100 : 0;
+  const hOutputVol = (parseFloat(headsForm.input_ethanol_volume) || 0) + (parseFloat(headsForm.water_added) || 0);
+  const hOutputABV = hOutputVol > 0 ? (hInputLALs / hOutputVol) * 100 : 0;
+  const hSourceTank = tanks.find(t => t.id === headsForm.source_tank_id);
+
+  // Auto-fill from source tank when selected
+  const handleHeadsSourceChange = (id) => {
+    setH('source_tank_id', id);
+    const tank = tanks.find(t => t.id === id);
+    if (tank) {
+      setH('input_abv', tank.current_abv || '');
+      setH('input_ethanol_volume', tank.current_volume || '');
     }
   };
 
-  // Derived calcs
-  const inputLALs = form.input_ethanol_volume && form.input_abv
-    ? parseFloat(form.input_ethanol_volume) * parseFloat(form.input_abv) / 100 : 0;
-  const outputVolume = (parseFloat(form.input_ethanol_volume) || 0) + (parseFloat(form.water_added) || 0);
-  const outputABV = outputVolume > 0 ? (inputLALs / outputVolume) * 100 : 0;
+  // Auto-fill from receiving record
+  const handleEthanolSourceChange = (id) => {
+    setE('source_id', id);
+    const rec = receivings.find(r => r.id === id);
+    if (rec) {
+      setE('input_abv', rec.abv_percent || '');
+      setE('input_ethanol_volume', rec.quantity || '');
+    }
+  };
 
-  const selectedTank = tanks.find(t => t.id === form.tank_id);
-
-  const createMutation = useMutation({
+  // --- Mutations ---
+  const ethanolMutation = useMutation({
     mutationFn: async (data) => {
-      const sourceName = data.source_type === 'receiving'
-        ? receivings.find(r => r.id === data.source_id)?.batch_number
-        : masterBatches.find(m => m.id === data.source_id)?.batch_code;
+      const sourceName = receivings.find(r => r.id === data.source_id)?.batch_number || '';
 
-      // 1. Create dilution record
       await base44.entities.Dilution.create({
         batch_number: data.batch_number,
         date: data.date,
         input_ethanol_volume: parseFloat(data.input_ethanol_volume),
         input_abv: parseFloat(data.input_abv),
-        input_lals: inputLALs,
+        input_lals: eInputLALs,
         water_added: parseFloat(data.water_added) || 0,
-        output_volume: outputVolume,
-        output_abv: parseFloat(outputABV.toFixed(2)),
-        output_lals: parseFloat(inputLALs.toFixed(4)),
+        output_volume: eOutputVol,
+        output_abv: parseFloat(eOutputABV.toFixed(2)),
+        output_lals: parseFloat(eInputLALs.toFixed(4)),
         status: data.status,
-        notes: data.notes,
+        notes: `[Ethanol Dilution] Source lot: ${sourceName}. ${data.notes}`,
       });
 
-      // 2. If a tank was chosen, log a TankMovement and update the tank
-      if (data.tank_id && selectedTank) {
+      if (data.tank_id && eSelectedTank) {
+        const newVol = Math.min((eSelectedTank.current_volume || 0) + eOutputVol, eSelectedTank.capacity_litres);
         await base44.entities.TankMovement.create({
           date: data.date,
           action: 'fill',
-          tank_name: selectedTank.name,
-          volume_litres: outputVolume,
-          abv: parseFloat(outputABV.toFixed(2)),
-          lals: parseFloat(inputLALs.toFixed(4)),
+          tank_name: eSelectedTank.name,
+          volume_litres: eOutputVol,
+          abv: parseFloat(eOutputABV.toFixed(2)),
+          lals: parseFloat(eInputLALs.toFixed(4)),
           product: data.batch_number,
-          batch_number: data.batch_number || sourceName,
-          notes: `Dilution — source: ${data.source_type === 'receiving' ? 'Receiving' : 'Master Batch'} ${sourceName || ''}`,
+          batch_number: data.batch_number,
+          notes: `Ethanol dilution — source: Receiving lot ${sourceName}`,
         });
-
-        const newVol = Math.min(
-          (selectedTank.current_volume || 0) + outputVolume,
-          selectedTank.capacity_litres
-        );
-
         await base44.entities.StorageTank.update(data.tank_id, {
           current_volume: newVol,
-          current_abv: parseFloat(outputABV.toFixed(2)),
-          current_product: data.batch_number || selectedTank.current_product,
-          current_batch: data.batch_number || sourceName,
+          current_abv: parseFloat(eOutputABV.toFixed(2)),
+          current_product: data.batch_number || eSelectedTank.current_product,
+          current_batch: data.batch_number,
           status: 'in_use',
         });
-
         queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
         queryClient.invalidateQueries({ queryKey: ['tankMovements'] });
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dilutions'] });
-      setOpen(false);
-      setForm(BLANK_FORM);
-      toast.success('Dilution recorded');
+      setOpenType(null);
+      setEthanolForm(BLANK_ETHANOL);
+      toast.success('Ethanol dilution recorded');
     },
   });
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    createMutation.mutate(form);
-  };
+  const headsMutation = useMutation({
+    mutationFn: async (data) => {
+      await base44.entities.Dilution.create({
+        batch_number: data.batch_number,
+        date: data.date,
+        input_ethanol_volume: parseFloat(data.input_ethanol_volume),
+        input_abv: parseFloat(data.input_abv),
+        input_lals: hInputLALs,
+        water_added: parseFloat(data.water_added) || 0,
+        output_volume: hOutputVol,
+        output_abv: parseFloat(hOutputABV.toFixed(2)),
+        output_lals: parseFloat(hInputLALs.toFixed(4)),
+        status: data.status,
+        notes: `[Heads Dilution] Source tank: ${hSourceTank?.name || ''}. ${data.notes}`,
+      });
+
+      // Update the source tank (water was added in-place, volume increases, ABV drops)
+      if (hSourceTank && hOutputVol > 0) {
+        const newVol = Math.min(hOutputVol, hSourceTank.capacity_litres);
+        await base44.entities.TankMovement.create({
+          date: data.date,
+          action: 'fill',
+          tank_name: hSourceTank.name,
+          volume_litres: parseFloat(data.water_added) || 0,
+          abv: 0,
+          lals: 0,
+          product: hSourceTank.current_product || 'Heads',
+          batch_number: data.batch_number,
+          notes: `Water addition for heads dilution — ${data.water_added}L water added`,
+        });
+        await base44.entities.StorageTank.update(data.source_tank_id, {
+          current_volume: newVol,
+          current_abv: parseFloat(hOutputABV.toFixed(2)),
+          status: newVol > 0 ? 'in_use' : 'empty',
+        });
+        queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
+        queryClient.invalidateQueries({ queryKey: ['tankMovements'] });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dilutions'] });
+      setOpenType(null);
+      setHeadsForm(BLANK_HEADS);
+      toast.success('Heads dilution recorded');
+    },
+  });
+
+  const CalcDisplay = ({ value, label }) => (
+    <div>
+      <Label className="flex items-center gap-1">{label} <Calculator className="w-3 h-3 text-primary" /></Label>
+      <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold transition-colors ${value > 0 ? 'bg-primary/8 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
+        {value > 0 ? value.toFixed(3) : '—'}
+      </div>
+    </div>
+  );
 
   return (
     <div className="pb-20 md:pb-0">
-      <PageHeader title="Dilutions" subtitle="Track ethanol dilutions and LAL calculations">
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-2" />New Dilution</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="font-display">Record Dilution</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+      <PageHeader title="Dilutions" subtitle="Track ethanol and heads dilutions">
+        <div className="flex gap-2">
+          {/* Ethanol Dilution Dialog */}
+          <Dialog open={openType === 'ethanol'} onOpenChange={v => setOpenType(v ? 'ethanol' : null)}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <FlaskConical className="w-4 h-4" />Ethanol Dilution
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="font-display flex items-center gap-2">
+                  <FlaskConical className="w-4 h-4 text-primary" />
+                  Ethanol Dilution (96% → Tank X/Y)
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={e => { e.preventDefault(); ethanolMutation.mutate(ethanolForm); }} className="space-y-4 mt-2">
 
-              {/* Batch + Date */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Batch Number</Label>
-                  <Input value={form.batch_number} onChange={e => set('batch_number', e.target.value)} required />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Batch Number</Label>
+                    <Input value={ethanolForm.batch_number} onChange={e => setE('batch_number', e.target.value)} required />
+                  </div>
+                  <div>
+                    <Label>Date</Label>
+                    <Input type="date" value={ethanolForm.date} onChange={e => setE('date', e.target.value)} required />
+                  </div>
                 </div>
-                <div>
-                  <Label>Date</Label>
-                  <Input type="date" value={form.date} onChange={e => set('date', e.target.value)} required />
-                </div>
-              </div>
 
-              {/* Source selection */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ethanol Source</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <Label>Source Type</Label>
-                    <Select
-                      value={form.source_type}
-                      onValueChange={v => setForm(p => ({ ...p, source_type: v, source_id: '', input_abv: '', input_ethanol_volume: '' }))}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ethanol Source (Received)</p>
+                  <div>
+                    <Label>Select Receiving Lot</Label>
+                    <Select value={ethanolForm.source_id} onValueChange={handleEthanolSourceChange}>
+                      <SelectTrigger><SelectValue placeholder="Choose a received ethanol lot..." /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="receiving">Ethanol Shipment (Receiving)</SelectItem>
-                        <SelectItem value="master_batch">Master Batch</SelectItem>
+                        {receivings.map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.material_name} — Lot: {r.batch_number || 'N/A'} ({r.quantity}{r.unit}, {r.abv_percent}% ABV) — {r.date_received}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Volume (L)</Label>
+                      <Input type="number" step="0.01" value={ethanolForm.input_ethanol_volume} onChange={e => setE('input_ethanol_volume', e.target.value)} required />
+                    </div>
+                    <div>
+                      <Label>ABV %</Label>
+                      <Input type="number" step="0.1" value={ethanolForm.input_abv} onChange={e => setE('input_abv', e.target.value)} required />
+                    </div>
+                    <CalcDisplay value={eInputLALs} label="LALs" />
+                  </div>
+                </div>
 
-                  <div className="col-span-2">
-                    <Label>{form.source_type === 'receiving' ? 'Ethanol Shipment' : 'Master Batch'}</Label>
-                    <Select value={form.source_id} onValueChange={handleSourceChange}>
-                      <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Water Addition & Output</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Water Added (L)</Label>
+                      <Input type="number" step="0.01" value={ethanolForm.water_added} onChange={e => setE('water_added', e.target.value)} />
+                    </div>
+                    <CalcDisplay value={eOutputVol} label="Output Vol (L)" />
+                    <CalcDisplay value={eOutputABV} label="Output ABV %" />
+                  </div>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Calculator className="w-3 h-3 text-primary" />
+                    Output LALs = <span className="font-semibold text-primary ml-1">{eInputLALs > 0 ? eInputLALs.toFixed(3) : '—'}</span>
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Destination Tank (X or Y — Outdoor)</p>
+                  <Select value={ethanolForm.tank_id} onValueChange={v => setE('tank_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="Select Tank X or Y..." /></SelectTrigger>
+                    <SelectContent>
+                      {ethanolDestTanks.length === 0
+                        ? <SelectItem value="none" disabled>No X/Y tanks found</SelectItem>
+                        : ethanolDestTanks.map(t => (
+                          <SelectItem key={t.id} value={t.id}>
+                            Tank {t.name} — {t.capacity_litres}L capacity
+                            {t.status === 'empty' ? ' (empty)' : ` — ${t.current_volume || 0}L in use`}
+                          </SelectItem>
+                        ))
+                      }
+                    </SelectContent>
+                  </Select>
+                  {eSelectedTank && eOutputVol > 0 && (
+                    <p className="text-xs text-primary font-medium">
+                      Tank {eSelectedTank.name} → {Math.min((eSelectedTank.current_volume || 0) + eOutputVol, eSelectedTank.capacity_litres).toFixed(1)}L
+                      / {eSelectedTank.capacity_litres}L at {eOutputABV.toFixed(2)}% ABV
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label>Status</Label>
+                  <Select value={ethanolForm.status} onValueChange={v => setE('status', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="planned">Planned</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Notes</Label>
+                  <Textarea value={ethanolForm.notes} onChange={e => setE('notes', e.target.value)} />
+                </div>
+
+                <Button type="submit" className="w-full" disabled={ethanolMutation.isPending}>
+                  {ethanolMutation.isPending ? 'Saving...' : 'Record Ethanol Dilution'}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Heads Dilution Dialog */}
+          <Dialog open={openType === 'heads'} onOpenChange={v => setOpenType(v ? 'heads' : null)}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Droplets className="w-4 h-4" />Heads Dilution
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="font-display flex items-center gap-2">
+                  <Droplets className="w-4 h-4 text-blue-500" />
+                  Heads Dilution (Tank E / F / H)
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={e => { e.preventDefault(); headsMutation.mutate(headsForm); }} className="space-y-4 mt-2">
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Batch Number</Label>
+                    <Input value={headsForm.batch_number} onChange={e => setH('batch_number', e.target.value)} required />
+                  </div>
+                  <div>
+                    <Label>Date</Label>
+                    <Input type="date" value={headsForm.date} onChange={e => setH('date', e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Source Tank (E, F or H — Heads)</p>
+                  <div>
+                    <Label>Select Source Tank</Label>
+                    <Select value={headsForm.source_tank_id} onValueChange={handleHeadsSourceChange}>
+                      <SelectTrigger><SelectValue placeholder="Choose a heads tank..." /></SelectTrigger>
                       <SelectContent>
-                        {form.source_type === 'receiving'
-                          ? receivings.map(r => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.material_name} — Lot: {r.batch_number || 'N/A'} ({r.quantity}{r.unit}, {r.abv_percent}% ABV) — {r.date_received}
-                            </SelectItem>
-                          ))
-                          : masterBatches.map(m => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.batch_code} — {m.product_name} ({m.status})
+                        {headsSrcTanks.length === 0
+                          ? <SelectItem value="none" disabled>No E/F/H tanks found</SelectItem>
+                          : headsSrcTanks.map(t => (
+                            <SelectItem key={t.id} value={t.id}>
+                              Tank {t.name}
+                              {t.current_volume > 0
+                                ? ` — ${t.current_volume}L @ ${t.current_abv}% ABV`
+                                : ' — empty'}
+                              {t.current_product ? ` (${t.current_product})` : ''}
                             </SelectItem>
                           ))
                         }
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Volume (L)</Label>
+                      <Input type="number" step="0.01" value={headsForm.input_ethanol_volume} onChange={e => setH('input_ethanol_volume', e.target.value)} required />
+                    </div>
+                    <div>
+                      <Label>ABV %</Label>
+                      <Input type="number" step="0.1" value={headsForm.input_abv} onChange={e => setH('input_abv', e.target.value)} required />
+                    </div>
+                    <CalcDisplay value={hInputLALs} label="LALs" />
+                  </div>
                 </div>
-              </div>
 
-              {/* Input ethanol */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Input Ethanol</p>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <Label>Volume (L)</Label>
-                    <Input type="number" step="0.01" value={form.input_ethanol_volume} onChange={e => set('input_ethanol_volume', e.target.value)} required />
-                  </div>
-                  <div>
-                    <Label>ABV %</Label>
-                    <Input type="number" step="0.1" value={form.input_abv} onChange={e => set('input_abv', e.target.value)} required />
-                  </div>
-                  <div>
-                    <Label className="flex items-center gap-1">LALs <Calculator className="w-3 h-3 text-primary" /></Label>
-                    <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold transition-colors ${inputLALs > 0 ? 'bg-primary/8 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
-                      {inputLALs > 0 ? inputLALs.toFixed(3) : '—'}
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Water Addition & Output</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Water Added (L)</Label>
+                      <Input type="number" step="0.01" value={headsForm.water_added} onChange={e => setH('water_added', e.target.value)} />
                     </div>
+                    <CalcDisplay value={hOutputVol} label="Output Vol (L)" />
+                    <CalcDisplay value={hOutputABV} label="Output ABV %" />
                   </div>
-                </div>
-              </div>
-
-              {/* Water + output */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Dilution & Output</p>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <Label>Water Added (L)</Label>
-                    <Input type="number" step="0.01" value={form.water_added} onChange={e => set('water_added', e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Output Vol (L)</Label>
-                    <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold transition-colors ${outputVolume > 0 ? 'bg-primary/8 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
-                      {outputVolume > 0 ? outputVolume.toFixed(2) : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Output ABV %</Label>
-                    <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold transition-colors ${outputABV > 0 ? 'bg-primary/8 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
-                      {outputABV > 0 ? outputABV.toFixed(2) : '—'}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <Calculator className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                  <p className="text-xs text-muted-foreground">
-                    LALs are <span className="font-medium text-foreground">conserved</span> through dilution —
-                    Output LALs = <span className="font-semibold text-primary">{inputLALs > 0 ? inputLALs.toFixed(3) : '—'}</span>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Calculator className="w-3 h-3 text-primary" />
+                    Output LALs = <span className="font-semibold text-primary ml-1">{hInputLALs > 0 ? hInputLALs.toFixed(3) : '—'}</span>
+                    <span className="ml-1">— water added in-place to tank {hSourceTank?.name || '…'}</span>
                   </p>
                 </div>
-              </div>
 
-              {/* Tank selection */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tank Assignment</p>
                 <div>
-                  <Label>Dilution Tank (optional)</Label>
-                  <Select value={form.tank_id} onValueChange={v => set('tank_id', v)}>
-                    <SelectTrigger><SelectValue placeholder="Select tank..." /></SelectTrigger>
+                  <Label>Status</Label>
+                  <Select value={headsForm.status} onValueChange={v => setH('status', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {tanks.map(t => (
-                        <SelectItem key={t.id} value={t.id}>
-                          Tank {t.name} — {t.capacity_litres}L capacity
-                          {t.status === 'empty' ? ' (empty)' : ` — ${t.current_volume || 0}L in use`}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="planned">Planned</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {selectedTank && outputVolume > 0 && (
-                  <p className="text-xs text-primary font-medium">
-                    Tank {selectedTank.name} will be updated to {Math.min((selectedTank.current_volume || 0) + outputVolume, selectedTank.capacity_litres).toFixed(1)}L
-                    / {selectedTank.capacity_litres}L at {outputABV.toFixed(2)}% ABV
-                  </p>
-                )}
-              </div>
 
-              <div>
-                <Label>Status</Label>
-                <Select value={form.status} onValueChange={v => set('status', v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="planned">Planned</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div>
+                  <Label>Notes</Label>
+                  <Textarea value={headsForm.notes} onChange={e => setH('notes', e.target.value)} />
+                </div>
 
-              <div>
-                <Label>Notes</Label>
-                <Textarea value={form.notes} onChange={e => set('notes', e.target.value)} />
-              </div>
-
-              <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'Saving...' : 'Record Dilution'}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <Button type="submit" className="w-full" disabled={headsMutation.isPending}>
+                  {headsMutation.isPending ? 'Saving...' : 'Record Heads Dilution'}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </PageHeader>
 
       <Card className="overflow-hidden">
@@ -320,6 +447,7 @@ export default function Dilutions() {
               <TableRow>
                 <TableHead>Date</TableHead>
                 <TableHead>Batch #</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Input Vol (L)</TableHead>
                 <TableHead>Input ABV</TableHead>
                 <TableHead>Input LALs</TableHead>
@@ -332,23 +460,32 @@ export default function Dilutions() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
               ) : dilutions.length === 0 ? (
-                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No dilutions recorded</TableCell></TableRow>
-              ) : dilutions.map(d => (
-                <TableRow key={d.id}>
-                  <TableCell className="text-sm">{d.date ? format(new Date(d.date), 'MMM d, yyyy') : '—'}</TableCell>
-                  <TableCell className="font-medium text-sm">{d.batch_number}</TableCell>
-                  <TableCell className="text-sm">{d.input_ethanol_volume}</TableCell>
-                  <TableCell className="text-sm">{d.input_abv}%</TableCell>
-                  <TableCell className="text-sm font-medium">{d.input_lals?.toFixed(3)}</TableCell>
-                  <TableCell className="text-sm">{d.water_added}</TableCell>
-                  <TableCell className="text-sm">{d.output_volume?.toFixed(2)}</TableCell>
-                  <TableCell className="text-sm">{d.output_abv?.toFixed(2)}%</TableCell>
-                  <TableCell className="text-sm font-medium">{d.output_lals?.toFixed(3)}</TableCell>
-                  <TableCell><StatusBadge status={d.status} /></TableCell>
-                </TableRow>
-              ))}
+                <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">No dilutions recorded</TableCell></TableRow>
+              ) : dilutions.map(d => {
+                const isHeads = d.notes?.includes('[Heads Dilution]');
+                return (
+                  <TableRow key={d.id}>
+                    <TableCell className="text-sm">{d.date ? format(new Date(d.date), 'MMM d, yyyy') : '—'}</TableCell>
+                    <TableCell className="font-medium text-sm">{d.batch_number}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${isHeads ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {isHeads ? <Droplets className="w-3 h-3" /> : <FlaskConical className="w-3 h-3" />}
+                        {isHeads ? 'Heads' : 'Ethanol'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm">{d.input_ethanol_volume}</TableCell>
+                    <TableCell className="text-sm">{d.input_abv}%</TableCell>
+                    <TableCell className="text-sm font-medium">{d.input_lals?.toFixed(3)}</TableCell>
+                    <TableCell className="text-sm">{d.water_added}</TableCell>
+                    <TableCell className="text-sm">{d.output_volume?.toFixed(2)}</TableCell>
+                    <TableCell className="text-sm">{d.output_abv?.toFixed(2)}%</TableCell>
+                    <TableCell className="text-sm font-medium">{d.output_lals?.toFixed(3)}</TableCell>
+                    <TableCell><StatusBadge status={d.status} /></TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
