@@ -60,6 +60,10 @@
     "notes": {
       "type": "string",
       "description": "Additional notes"
+    },
+    "packing_slip_url": {
+      "type": "string",
+      "description": "Google Drive link to the packing slip document"
     }
   },
   "required": [
