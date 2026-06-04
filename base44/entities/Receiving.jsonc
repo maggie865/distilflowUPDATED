@@ -1,0 +1,72 @@
+{
+  "name": "Receiving",
+  "type": "object",
+  "properties": {
+    "material_name": {
+      "type": "string",
+      "description": "Name of received material"
+    },
+    "material_type": {
+      "type": "string",
+      "enum": [
+        "ethanol",
+        "botanical",
+        "grain",
+        "sugar",
+        "water",
+        "flavoring",
+        "other"
+      ],
+      "description": "Type of material"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Quantity received"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "litres",
+        "kg",
+        "units"
+      ],
+      "description": "Unit of measurement"
+    },
+    "abv_percent": {
+      "type": "number",
+      "description": "ABV percentage if ethanol"
+    },
+    "lals": {
+      "type": "number",
+      "description": "LALs received"
+    },
+    "supplier": {
+      "type": "string",
+      "description": "Supplier name"
+    },
+    "cost_per_unit": {
+      "type": "number",
+      "description": "Cost per unit"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Batch or lot number"
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date",
+      "description": "Date received"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "material_name",
+    "material_type",
+    "quantity",
+    "unit",
+    "date_received"
+  ]
+}

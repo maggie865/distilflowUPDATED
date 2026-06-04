@@ -1,0 +1,57 @@
+{
+  "name": "BottlingRun",
+  "type": "object",
+  "properties": {
+    "batch_number": {
+      "type": "string",
+      "description": "Bottling batch number"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of bottling"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Product being bottled"
+    },
+    "input_volume": {
+      "type": "number",
+      "description": "Volume of spirit to bottle (litres)"
+    },
+    "input_abv": {
+      "type": "number",
+      "description": "ABV of spirit (%)"
+    },
+    "input_lals": {
+      "type": "number",
+      "description": "LALs being bottled"
+    },
+    "bottle_size_ml": {
+      "type": "number",
+      "description": "Bottle size in ml"
+    },
+    "bottles_produced": {
+      "type": "number",
+      "description": "Number of bottles produced"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "in_progress",
+        "completed"
+      ],
+      "default": "planned"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "batch_number",
+    "date",
+    "product_name"
+  ]
+}

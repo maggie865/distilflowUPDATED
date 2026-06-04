@@ -1,0 +1,39 @@
+{
+  "name": "FinishedGood",
+  "type": "object",
+  "properties": {
+    "product_name": {
+      "type": "string",
+      "description": "Name of the finished product"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Batch number"
+    },
+    "bottle_size_ml": {
+      "type": "number",
+      "description": "Bottle size in ml"
+    },
+    "abv_percent": {
+      "type": "number",
+      "description": "ABV percentage"
+    },
+    "quantity_bottles": {
+      "type": "number",
+      "description": "Number of bottles in stock"
+    },
+    "total_lals": {
+      "type": "number",
+      "description": "Total LALs in stock"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "product_name",
+    "batch_number",
+    "quantity_bottles"
+  ]
+}

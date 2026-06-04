@@ -1,0 +1,69 @@
+{
+  "name": "DistillationRun",
+  "type": "object",
+  "properties": {
+    "batch_number": {
+      "type": "string",
+      "description": "Distillation batch number"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of distillation"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Product being distilled"
+    },
+    "input_volume": {
+      "type": "number",
+      "description": "Input wash/liquid volume (litres)"
+    },
+    "input_abv": {
+      "type": "number",
+      "description": "Input ABV (%)"
+    },
+    "input_lals": {
+      "type": "number",
+      "description": "Input LALs"
+    },
+    "output_volume": {
+      "type": "number",
+      "description": "Output spirit volume (litres)"
+    },
+    "output_abv": {
+      "type": "number",
+      "description": "Output ABV (%)"
+    },
+    "output_lals": {
+      "type": "number",
+      "description": "Output LALs"
+    },
+    "heads_volume": {
+      "type": "number",
+      "description": "Heads collected (litres)"
+    },
+    "tails_volume": {
+      "type": "number",
+      "description": "Tails collected (litres)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "in_progress",
+        "completed"
+      ],
+      "default": "planned"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "batch_number",
+    "date",
+    "product_name"
+  ]
+}

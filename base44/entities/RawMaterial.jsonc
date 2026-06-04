@@ -1,0 +1,66 @@
+{
+  "name": "RawMaterial",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the raw material"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "ethanol",
+        "botanical",
+        "grain",
+        "sugar",
+        "water",
+        "flavoring",
+        "other"
+      ],
+      "description": "Type of raw material"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Current quantity in stock"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "litres",
+        "kg",
+        "units"
+      ],
+      "description": "Unit of measurement"
+    },
+    "abv_percent": {
+      "type": "number",
+      "description": "ABV percentage (for ethanol/spirits only)"
+    },
+    "lals": {
+      "type": "number",
+      "description": "Litres of Absolute Alcohol (for ethanol/spirits)"
+    },
+    "supplier": {
+      "type": "string",
+      "description": "Supplier name"
+    },
+    "cost_per_unit": {
+      "type": "number",
+      "description": "Cost per unit"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Batch or lot number"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "name",
+    "type",
+    "quantity",
+    "unit"
+  ]
+}
