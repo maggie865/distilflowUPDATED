@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
 
     if (!uploadRes.ok) {
       const err = await uploadRes.text();
+      console.error('Drive upload failed:', uploadRes.status, err);
       return Response.json({ error: `Drive upload failed: ${err}` }, { status: 500 });
     }
 
