@@ -37,6 +37,8 @@ export default function Distillation() {
   const [editing, setEditing] = useState(null);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [runToComplete, setRunToComplete] = useState(null);
+  const [confirmCompleteOpen, setConfirmCompleteOpen] = useState(false);
+  const [headsDestination, setHeadsDestination] = useState('');
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [scaledIngredients, setScaledIngredients] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -150,11 +152,6 @@ export default function Distillation() {
     ? parseFloat(form.hearts_volume) * parseFloat(form.hearts_abv) / 100 : 0;
   const tailsLALs = form.tails_volume && form.tails_abv
     ? parseFloat(form.tails_volume) * parseFloat(form.tails_abv) / 100 : 0;
-  const dumpedLALs = form.dumped_volume && form.dumped_abv
-    ? parseFloat(form.dumped_volume) * parseFloat(form.dumped_abv) / 100 : 0;
-
-  // Still remainder removed — no longer tracked separately
-
   // Auto-calculate total output from cuts
   const calcOutputVolume = (parseFloat(form.heads_volume) || 0) + (parseFloat(form.hearts_volume) || 0) + (parseFloat(form.tails_volume) || 0);
   const calcOutputLALs = headsLALs + heartsLALs + tailsLALs;
@@ -162,9 +159,14 @@ export default function Distillation() {
   const calcOutputAbv = calcOutputVolume > 0 ? (calcOutputLALs / calcOutputVolume) * 100 : 0;
   const outputLALs = calcOutputLALs;
 
+  // Dumped / discarded — auto LALs = whatever is unaccounted after cuts
+  const autoDumpedLALs = inputLALs > 0 ? Math.max(0, inputLALs - calcOutputLALs) : 0;
+  const dumpedVolume = parseFloat(form.dumped_volume) || 0;
+  const dumped_abv = autoDumpedLALs > 0 && dumpedVolume > 0 ? (autoDumpedLALs / dumpedVolume) * 100 : 0;
+
   const numericFields = ['input_volume','input_abv','atmospheric_pressure','still_temp',
     'heads_volume','heads_abv','hearts_volume','hearts_abv',
-    'tails_volume','tails_abv','dumped_volume','dumped_abv'];
+    'tails_volume','tails_abv','dumped_volume'];
 
   const buildPayload = (data) => {
     const payload = { ...data };
@@ -173,7 +175,8 @@ export default function Distillation() {
     payload.heads_lals = headsLALs ? parseFloat(headsLALs.toFixed(4)) : undefined;
     payload.hearts_lals = heartsLALs ? parseFloat(heartsLALs.toFixed(4)) : undefined;
     payload.tails_lals = tailsLALs ? parseFloat(tailsLALs.toFixed(4)) : undefined;
-    payload.dumped_lals = dumpedLALs ? parseFloat(dumpedLALs.toFixed(4)) : undefined;
+    payload.dumped_lals = autoDumpedLALs > 0 ? parseFloat(autoDumpedLALs.toFixed(4)) : undefined;
+    payload.dumped_abv = dumped_abv > 0 ? parseFloat(dumped_abv.toFixed(2)) : undefined;
     payload.output_volume = calcOutputVolume > 0 ? parseFloat(calcOutputVolume.toFixed(3)) : undefined;
     payload.output_abv = calcOutputAbv > 0 ? parseFloat(calcOutputAbv.toFixed(2)) : undefined;
     payload.output_lals = calcOutputLALs > 0 ? parseFloat(calcOutputLALs.toFixed(4)) : undefined;
@@ -519,13 +522,15 @@ export default function Distillation() {
                   <Input type="number" step="0.01" value={form.dumped_volume} onChange={e => set('dumped_volume', e.target.value)} placeholder="0" />
                 </div>
                 <div>
-                  <Label className="text-xs">ABV %</Label>
-                  <Input type="number" step="0.1" value={form.dumped_abv} onChange={e => set('dumped_abv', e.target.value)} placeholder="0" />
+                  <Label className="text-xs flex items-center gap-1">ABV % <Calculator className="w-3 h-3 text-primary" /></Label>
+                  <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold ${dumped_abv > 0 ? 'bg-primary/5 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
+                    {dumped_abv > 0 ? dumped_abv.toFixed(2) + '%' : '—'}
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs flex items-center gap-1">LALs <Calculator className="w-3 h-3 text-primary" /></Label>
-                  <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold ${dumpedLALs > 0 ? 'bg-primary/5 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
-                    {dumpedLALs > 0 ? dumpedLALs.toFixed(3) : '—'}
+                  <div className={`h-9 flex items-center px-3 rounded-md border text-sm font-semibold ${autoDumpedLALs > 0 ? 'bg-primary/5 border-primary/30 text-primary' : 'bg-muted border-input text-muted-foreground'}`}>
+                    {autoDumpedLALs > 0 ? autoDumpedLALs.toFixed(3) : '—'}
                   </div>
                 </div>
               </div>
@@ -544,12 +549,11 @@ export default function Distillation() {
                   <div className="flex justify-between"><span className="text-muted-foreground">Heads LALs</span><span>{headsLALs.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Hearts LALs</span><span className="text-emerald-700 font-semibold">{heartsLALs.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Tails LALs</span><span>{tailsLALs.toFixed(3)}</span></div>
-                  {dumpedLALs > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Dumped LALs</span><span>{dumpedLALs.toFixed(3)}</span></div>}
                 </div>
                 <div className="border-t border-amber-200 pt-2 flex justify-between text-sm">
-                  <span className="text-amber-700 font-medium">Unaccounted LALs</span>
-                  <span className={`font-semibold ${Math.abs(inputLALs - calcOutputLALs - dumpedLALs) < 0.01 ? 'text-emerald-600' : 'text-amber-700'}`}>
-                    {(inputLALs - calcOutputLALs - dumpedLALs).toFixed(3)}
+                  <span className="text-amber-700 font-medium">Dumped / Discarded LALs</span>
+                  <span className={`font-semibold ${autoDumpedLALs < 0.001 ? 'text-emerald-600' : 'text-amber-700'}`}>
+                    {autoDumpedLALs.toFixed(3)}
                   </span>
                 </div>
               </div>
@@ -575,7 +579,7 @@ export default function Distillation() {
 
             <div className="flex gap-3 pt-1">
               <Button type="submit" variant="outline" className="flex-1" disabled={isPending}>
-                {isPending ? 'Saving…' : editing ? 'Save Progress' : 'Record Run'}
+                {isPending ? 'Saving…' : 'Save Progress'}
               </Button>
               {editing && editing.status !== 'completed' && (
                 <Button
@@ -584,21 +588,97 @@ export default function Distillation() {
                   disabled={isPending}
                   onClick={(e) => {
                     e.preventDefault();
-                    // Save current form changes first, then open complete dialog
                     updateMutation.mutate(form, {
                       onSuccess: () => {
-                        // Refresh editing run with latest form data so dialog sees correct values
-                        setRunToComplete({ ...editing, ...form });
-                        setCompleteDialogOpen(true);
+                        setHeadsDestination('');
+                        setConfirmCompleteOpen(true);
                       }
                     });
                   }}
                 >
-                  Complete Distillation
+                  Complete Still Run
                 </Button>
               )}
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Complete Still Run dialog */}
+      <Dialog open={confirmCompleteOpen} onOpenChange={setConfirmCompleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Complete Still Run</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label>Transfer Heads to Maceration/Dilution Tank</Label>
+              <Select value={headsDestination} onValueChange={setHeadsDestination}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select destination…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ibc_heads_tails">IBC — Heads &amp; Tails Tank</SelectItem>
+                  {activeBatches.map(b => (
+                    <SelectItem key={b.id} value={b.batch_code}>
+                      <span className="font-mono">{b.batch_code}</span>
+                      {b.product_name && <span className="text-muted-foreground ml-2 text-xs">— {b.product_name}</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Heads</span>
+                <span className="font-medium">{form.heads_volume || 0}L @ {form.heads_abv || 0}% ABV</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tails</span>
+                <span className="font-medium">{form.tails_volume || 0}L @ {form.tails_abv || 0}% ABV → auto-sent to IBC</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Dumped</span>
+                <span className="font-medium">{form.dumped_volume || 0}L → recorded to Wastage Report</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setConfirmCompleteOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={!headsDestination || isPending}
+                onClick={async () => {
+                  await base44.entities.DistillationRun.update(editing.id, {
+                    ...buildPayload(form),
+                    status: 'completed',
+                    heads_destination: headsDestination,
+                  });
+                  if (dumpedVolume > 0 || autoDumpedLALs > 0) {
+                    await base44.entities.WastageRecord.create({
+                      date: form.date,
+                      batch_number: form.batch_number,
+                      product_name: form.product_name,
+                      volume: dumpedVolume,
+                      abv: dumped_abv,
+                      lals: autoDumpedLALs,
+                      reason: form.dumped_notes || 'Distillation waste — heads/tails/dumped',
+                      source: 'distillation',
+                      run_id: editing.id,
+                    });
+                  }
+                  queryClient.invalidateQueries({ queryKey: ['distillationRuns'] });
+                  queryClient.invalidateQueries({ queryKey: ['wastageRecords'] });
+                  toast.success('Still run completed — wastage recorded');
+                  setConfirmCompleteOpen(false);
+                  setOpen(false);
+                }}
+              >
+                Confirm &amp; Complete
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
