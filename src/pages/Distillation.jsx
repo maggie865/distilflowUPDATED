@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import CompleteDistillationDialog from '@/components/distillation/CompleteDistillationDialog';
+import CreateBatchDialog from '@/components/distillation/CreateBatchDialog';
 
 const EMPTY_FORM = {
   batch_number: '', date: new Date().toISOString().split('T')[0],
@@ -38,7 +39,16 @@ export default function Distillation() {
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [scaledIngredients, setScaledIngredients] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [createBatchOpen, setCreateBatchOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  const { data: masterBatches = [] } = useQuery({
+    queryKey: ['masterBatches'],
+    queryFn: () => base44.entities.MasterBatch.list('-date_started', 100),
+  });
+
+  // Only show batches that are not yet completed/bottling-done
+  const activeBatches = masterBatches.filter(b => b.status !== 'completed' && b.status !== 'bottling');
 
   const { data: recipes = [] } = useQuery({
     queryKey: ['recipes'],
@@ -252,7 +262,50 @@ export default function Distillation() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Batch Number</Label>
-                <Input value={form.batch_number} onChange={e => set('batch_number', e.target.value)} required />
+                {editing ? (
+                  // When editing, show plain text (batch number shouldn't change)
+                  <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted text-sm font-medium">
+                    {form.batch_number}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <Select
+                      value={form.batch_number}
+                      onValueChange={v => {
+                        const batch = masterBatches.find(b => b.batch_code === v);
+                        set('batch_number', v);
+                        if (batch?.product_name && !form.product_name) set('product_name', batch.product_name);
+                      }}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select batch…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeBatches.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                            No active batches — create one first
+                          </div>
+                        )}
+                        {activeBatches.map(b => (
+                          <SelectItem key={b.id} value={b.batch_code}>
+                            <span className="font-mono">{b.batch_code}</span>
+                            {b.product_name && <span className="text-muted-foreground ml-2 text-xs">— {b.product_name}</span>}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="flex-shrink-0"
+                      title="Create new batch"
+                      onClick={() => setCreateBatchOpen(true)}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
               <div>
                 <Label>Date</Label>
@@ -612,6 +665,15 @@ export default function Distillation() {
         open={completeDialogOpen}
         onOpenChange={setCompleteDialogOpen}
         onCompleted={() => setOpen(false)}
+      />
+
+      <CreateBatchDialog
+        open={createBatchOpen}
+        onOpenChange={setCreateBatchOpen}
+        onCreated={(batch) => {
+          set('batch_number', batch.batch_code);
+          if (batch.product_name && !form.product_name) set('product_name', batch.product_name);
+        }}
       />
     </div>
   );
