@@ -38,6 +38,8 @@ const BLANK_HEADS = {
   input_ethanol_volume: '',
   input_abv: '',
   water_added: '',
+  output_volume: '',
+  target_abv: '',
   status: 'completed',
   notes: '',
 };
@@ -77,11 +79,35 @@ export default function Dilutions() {
   const eOutputABV = eOutputVol > 0 ? (eInputLALs / eOutputVol) * 100 : 0;
   const eSelectedTank = tanks.find(t => t.id === ethanolForm.tank_id);
 
-  // --- Heads Dilution calcs ---
-  const hInputLALs = headsForm.input_ethanol_volume && headsForm.input_abv
-    ? parseFloat(headsForm.input_ethanol_volume) * parseFloat(headsForm.input_abv) / 100 : 0;
-  const hOutputVol = (parseFloat(headsForm.input_ethanol_volume) || 0) + (parseFloat(headsForm.water_added) || 0);
-  const hOutputABV = hOutputVol > 0 ? (hInputLALs / hOutputVol) * 100 : 0;
+  // --- Heads Dilution calcs (tri-directional) ---
+  const hInputVol = parseFloat(headsForm.input_ethanol_volume) || 0;
+  const hInputAbv = parseFloat(headsForm.input_abv) || 0;
+  const hInputLALs = hInputVol && hInputAbv ? hInputVol * hInputAbv / 100 : 0;
+
+  // Derive the third value from whichever two are filled
+  const hWaterRaw = parseFloat(headsForm.water_added);
+  const hOutputVolRaw = parseFloat(headsForm.output_volume);
+  const hTargetAbvRaw = parseFloat(headsForm.target_abv);
+
+  let hWater = 0, hOutputVol = 0, hOutputABV = 0;
+
+  if (!isNaN(hWaterRaw) && headsForm.water_added !== '') {
+    // water entered → derive output vol & ABV
+    hWater = hWaterRaw;
+    hOutputVol = hInputVol + hWater;
+    hOutputABV = hOutputVol > 0 ? (hInputLALs / hOutputVol) * 100 : 0;
+  } else if (!isNaN(hOutputVolRaw) && headsForm.output_volume !== '') {
+    // output vol entered → derive water & ABV
+    hOutputVol = hOutputVolRaw;
+    hWater = Math.max(0, hOutputVol - hInputVol);
+    hOutputABV = hOutputVol > 0 ? (hInputLALs / hOutputVol) * 100 : 0;
+  } else if (!isNaN(hTargetAbvRaw) && headsForm.target_abv !== '' && hTargetAbvRaw > 0) {
+    // target ABV entered → derive output vol & water
+    hOutputABV = hTargetAbvRaw;
+    hOutputVol = hInputLALs > 0 ? (hInputLALs / hTargetAbvRaw) * 100 : 0;
+    hWater = Math.max(0, hOutputVol - hInputVol);
+  }
+
   const hSourceTank = tanks.find(t => t.id === headsForm.source_tank_id);
 
   // Auto-fill from source tank when selected
@@ -163,8 +189,8 @@ export default function Dilutions() {
         input_ethanol_volume: parseFloat(data.input_ethanol_volume),
         input_abv: parseFloat(data.input_abv),
         input_lals: hInputLALs,
-        water_added: parseFloat(data.water_added) || 0,
-        output_volume: hOutputVol,
+        water_added: parseFloat(hWater.toFixed(3)),
+        output_volume: parseFloat(hOutputVol.toFixed(3)),
         output_abv: parseFloat(hOutputABV.toFixed(2)),
         output_lals: parseFloat(hInputLALs.toFixed(4)),
         status: data.status,
@@ -178,12 +204,12 @@ export default function Dilutions() {
           date: data.date,
           action: 'fill',
           tank_name: hSourceTank.name,
-          volume_litres: parseFloat(data.water_added) || 0,
+          volume_litres: parseFloat(hWater.toFixed(3)),
           abv: 0,
           lals: 0,
           product: hSourceTank.current_product || 'Heads',
           batch_number: data.batch_number,
-          notes: `Water addition for heads dilution — ${data.water_added}L water added`,
+          notes: `Water addition for heads dilution — ${hWater.toFixed(3)}L water added`,
         });
         await base44.entities.StorageTank.update(data.source_tank_id, {
           current_volume: newVol,
@@ -391,19 +417,44 @@ export default function Dilutions() {
                 </div>
 
                 <div className="rounded-lg border border-border p-4 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Water Addition & Output</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Output — enter any one field</p>
+                  <p className="text-xs text-muted-foreground">Fill in <span className="font-medium text-foreground">one</span> of the three fields below and the others will be calculated automatically.</p>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <Label>Water Added (L)</Label>
-                      <Input type="number" step="0.01" value={headsForm.water_added} onChange={e => setH('water_added', e.target.value)} />
+                      <Label className="flex items-center gap-1">Water Added (L){headsForm.water_added === '' && (hOutputVolRaw || hTargetAbvRaw) ? <Calculator className="w-3 h-3 text-primary" /> : null}</Label>
+                      <Input
+                        type="number" step="0.01"
+                        value={headsForm.water_added !== '' ? headsForm.water_added : (headsForm.output_volume !== '' || headsForm.target_abv !== '') && hWater > 0 ? hWater.toFixed(3) : ''}
+                        onChange={e => setHeadsForm(p => ({ ...p, water_added: e.target.value, output_volume: '', target_abv: '' }))}
+                        placeholder="e.g. 50"
+                        className={headsForm.water_added === '' && hWater > 0 ? 'bg-primary/5 border-primary/40 font-semibold text-primary' : ''}
+                      />
                     </div>
-                    <CalcDisplay value={hOutputVol} label="Output Vol (L)" />
-                    <CalcDisplay value={hOutputABV} label="Output ABV %" />
+                    <div>
+                      <Label className="flex items-center gap-1">Output Vol (L){headsForm.output_volume === '' && (headsForm.water_added !== '' || headsForm.target_abv !== '') ? <Calculator className="w-3 h-3 text-primary" /> : null}</Label>
+                      <Input
+                        type="number" step="0.01"
+                        value={headsForm.output_volume !== '' ? headsForm.output_volume : (headsForm.water_added !== '' || headsForm.target_abv !== '') && hOutputVol > 0 ? hOutputVol.toFixed(3) : ''}
+                        onChange={e => setHeadsForm(p => ({ ...p, output_volume: e.target.value, water_added: '', target_abv: '' }))}
+                        placeholder="e.g. 150"
+                        className={headsForm.output_volume === '' && hOutputVol > 0 ? 'bg-primary/5 border-primary/40 font-semibold text-primary' : ''}
+                      />
+                    </div>
+                    <div>
+                      <Label className="flex items-center gap-1">Target ABV %{headsForm.target_abv === '' && (headsForm.water_added !== '' || headsForm.output_volume !== '') ? <Calculator className="w-3 h-3 text-primary" /> : null}</Label>
+                      <Input
+                        type="number" step="0.1"
+                        value={headsForm.target_abv !== '' ? headsForm.target_abv : (headsForm.water_added !== '' || headsForm.output_volume !== '') && hOutputABV > 0 ? hOutputABV.toFixed(2) : ''}
+                        onChange={e => setHeadsForm(p => ({ ...p, target_abv: e.target.value, water_added: '', output_volume: '' }))}
+                        placeholder="e.g. 45"
+                        className={headsForm.target_abv === '' && hOutputABV > 0 ? 'bg-primary/5 border-primary/40 font-semibold text-primary' : ''}
+                      />
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Calculator className="w-3 h-3 text-primary" />
                     Output LALs = <span className="font-semibold text-primary ml-1">{hInputLALs > 0 ? hInputLALs.toFixed(3) : '—'}</span>
-                    <span className="ml-1">— water added in-place to tank {hSourceTank?.name || '…'}</span>
+                    {hSourceTank && <span className="ml-1">— water added in-place to Tank {hSourceTank.name}</span>}
                   </p>
                 </div>
 
