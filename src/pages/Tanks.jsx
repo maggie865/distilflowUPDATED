@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -66,6 +66,7 @@ export default function Tanks() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [newTank, setNewTank] = useState(BLANK_TANK);
+  const [editTank, setEditTank] = useState(null);
   const queryClient = useQueryClient();
 
   const { data: tanks = [], isLoading: tanksLoading } = useQuery({
@@ -87,6 +88,21 @@ export default function Tanks() {
       setAddOpen(false);
       setNewTank(BLANK_TANK);
       toast.success('Tank added — it will now appear in all relevant dropdowns');
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.StorageTank.update(id, {
+      name: data.name.toUpperCase(),
+      capacity_litres: parseFloat(data.capacity_litres),
+      purpose: data.purpose,
+      location: data.location,
+      notes: data.notes,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
+      setEditTank(null);
+      toast.success('Tank updated');
     },
   });
 
@@ -213,9 +229,18 @@ export default function Tanks() {
                     {GROUP_LABELS[group]}
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {groupTanks.map(tank => (
-                      <TankCard key={tank.id} tank={tank} onTransfer={handleTransfer} />
-                    ))}
+                     {groupTanks.map(tank => (
+                       <div key={tank.id} className="relative group">
+                         <TankCard tank={tank} onTransfer={handleTransfer} />
+                         <button
+                           onClick={() => setEditTank({ ...tank, capacity_litres: tank.capacity_litres ?? '' })}
+                           className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 hover:bg-white rounded-md p-1.5 shadow-sm border border-border"
+                           title="Edit tank"
+                         >
+                           <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                         </button>
+                       </div>
+                     ))}
                   </div>
                 </div>
               ))}
@@ -282,6 +307,76 @@ export default function Tanks() {
           onOpenChange={setTransferOpen}
         />
       )}
+
+      {/* Edit Tank Dialog */}
+      <Dialog open={!!editTank} onOpenChange={open => { if (!open) setEditTank(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Tank {editTank?.name}</DialogTitle>
+          </DialogHeader>
+          {editTank && (
+            <form
+              onSubmit={e => { e.preventDefault(); editMutation.mutate({ id: editTank.id, data: editTank }); }}
+              className="space-y-4 mt-2"
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Tank Name / Letter</Label>
+                  <Input
+                    value={editTank.name}
+                    onChange={e => setEditTank(p => ({ ...p, name: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Capacity (litres)</Label>
+                  <Input
+                    type="number" step="1"
+                    value={editTank.capacity_litres}
+                    onChange={e => setEditTank(p => ({ ...p, capacity_litres: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Tank Type / Purpose</Label>
+                <Select value={editTank.purpose} onValueChange={v => setEditTank(p => ({ ...p, purpose: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PURPOSE_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Changing purpose will update which dropdowns this tank appears in across the app.
+                </p>
+              </div>
+              <div>
+                <Label>Location</Label>
+                <Select value={editTank.location} onValueChange={v => setEditTank(p => ({ ...p, location: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="indoor">Indoor</SelectItem>
+                    <SelectItem value="outdoor">Outdoor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Input
+                  value={editTank.notes || ''}
+                  onChange={e => setEditTank(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={editMutation.isPending}>
+                {editMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
