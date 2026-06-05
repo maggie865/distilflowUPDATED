@@ -2,20 +2,22 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, FlaskConical, Pencil } from 'lucide-react';
+import { Plus, Trash2, FlaskConical, Pencil, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 
 const EMPTY_INGREDIENT = { name: '', quantity: '', unit: 'g', notes: '' };
 const EMPTY_PACKAGING = { name: '', quantity: 1, unit: 'units', type: 'bottle' };
 
-const EMPTY_FORM = {
+const EMPTY_SPIRIT_FORM = {
+  recipe_type: 'spirit',
   name: '', description: '', base_ethanol_volume: '', base_ethanol_abv: '',
   bottles_per_case: '',
   ingredients: [{ ...EMPTY_INGREDIENT }],
@@ -23,10 +25,19 @@ const EMPTY_FORM = {
   notes: ''
 };
 
+const EMPTY_PACKAGING_FORM = {
+  recipe_type: 'packaging',
+  name: '', description: '',
+  bottles_per_case: '',
+  packaging: [{ ...EMPTY_PACKAGING }],
+  ingredients: [],
+  notes: ''
+};
+
 export default function Recipes() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(EMPTY_SPIRIT_FORM);
   const queryClient = useQueryClient();
 
   const { data: recipes = [], isLoading } = useQuery({
@@ -69,17 +80,19 @@ export default function Recipes() {
   const addPackaging = () => setForm(prev => ({ ...prev, packaging: [...(prev.packaging || []), { ...EMPTY_PACKAGING }] }));
   const removePackaging = (index) => setForm(prev => ({ ...prev, packaging: prev.packaging.filter((_, i) => i !== index) }));
 
-  const openNew = () => { setEditing(null); setForm(EMPTY_FORM); setOpen(true); };
+  const openNewSpirit = () => { setEditing(null); setForm(EMPTY_SPIRIT_FORM); setOpen(true); };
+  const openNewPackaging = () => { setEditing(null); setForm(EMPTY_PACKAGING_FORM); setOpen(true); };
 
   const openEdit = (recipe) => {
     setEditing(recipe);
     setForm({
+      recipe_type: recipe.recipe_type || 'spirit',
       name: recipe.name || '',
       description: recipe.description || '',
       base_ethanol_volume: recipe.base_ethanol_volume || '',
       base_ethanol_abv: recipe.base_ethanol_abv || '',
       bottles_per_case: recipe.bottles_per_case || '',
-      ingredients: recipe.ingredients?.length ? recipe.ingredients : [{ ...EMPTY_INGREDIENT }],
+      ingredients: recipe.ingredients?.length ? recipe.ingredients : (recipe.recipe_type === 'packaging' ? [] : [{ ...EMPTY_INGREDIENT }]),
       packaging: recipe.packaging || [],
       notes: recipe.notes || '',
     });
@@ -124,7 +137,8 @@ export default function Recipes() {
   return (
     <div className="pb-20 md:pb-0">
       <PageHeader title="Recipes" subtitle="Define products and their botanical recipes">
-        <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" />New Recipe</Button>
+        <Button variant="outline" onClick={openNewPackaging}><Package className="w-4 h-4 mr-2" />New Packaging Recipe</Button>
+        <Button onClick={openNewSpirit}><FlaskConical className="w-4 h-4 mr-2" />New Spirit Recipe</Button>
       </PageHeader>
 
       {isLoading ? (
@@ -142,7 +156,12 @@ export default function Recipes() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <CardTitle className="font-display text-lg">{recipe.name}</CardTitle>
+                    <div className="flex items-center gap-2 mb-1">
+                      <CardTitle className="font-display text-lg">{recipe.name}</CardTitle>
+                      <Badge variant="secondary" className={recipe.recipe_type === 'packaging' ? 'bg-sky-100 text-sky-800 text-xs' : 'bg-amber-100 text-amber-800 text-xs'}>
+                        {recipe.recipe_type === 'packaging' ? 'Packaging' : 'Spirit'}
+                      </Badge>
+                    </div>
                     {recipe.description && <p className="text-sm text-muted-foreground mt-1">{recipe.description}</p>}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
@@ -213,37 +232,53 @@ export default function Recipes() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="font-display">{editing ? 'Edit Recipe' : 'New Recipe'}</DialogTitle>
+            <DialogTitle className="font-display">
+              {editing
+                ? `Edit ${form.recipe_type === 'packaging' ? 'Packaging' : 'Spirit'} Recipe`
+                : form.recipe_type === 'packaging' ? 'New Packaging Recipe' : 'New Spirit Recipe'}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={(e) => { e.preventDefault(); saveMutation.mutate(form); }} className="space-y-4 mt-2">
             <div>
               <Label>Product Name</Label>
-              <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. London Dry Gin" required />
+              <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder={form.recipe_type === 'packaging' ? 'e.g. Standard 700ml Config' : 'e.g. London Dry Gin'} required />
             </div>
             <div>
               <Label>Description</Label>
               <Input value={form.description} onChange={e => set('description', e.target.value)} placeholder="Brief description" />
             </div>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Base Recipe Parameters</p>
-              <p className="text-xs text-muted-foreground">All ingredient quantities are relative to this ethanol volume and will auto-scale for different batch sizes.</p>
+            {form.recipe_type === 'spirit' && (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Base Recipe Parameters</p>
+                <p className="text-xs text-muted-foreground">All ingredient quantities are relative to this ethanol volume and will auto-scale for different batch sizes.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Base Ethanol Volume (L)</Label>
+                    <Input type="number" step="0.01" value={form.base_ethanol_volume} onChange={e => set('base_ethanol_volume', e.target.value)} placeholder="e.g. 100" required />
+                  </div>
+                  <div>
+                    <Label>Ethanol ABV %</Label>
+                    <Input type="number" step="0.1" value={form.base_ethanol_abv} onChange={e => set('base_ethanol_abv', e.target.value)} placeholder="e.g. 96" />
+                  </div>
+                  <div>
+                    <Label>Bottles per Case</Label>
+                    <Input type="number" value={form.bottles_per_case} onChange={e => set('bottles_per_case', e.target.value)} placeholder="e.g. 12" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {form.recipe_type === 'packaging' && (
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Base Ethanol Volume (L)</Label>
-                  <Input type="number" step="0.01" value={form.base_ethanol_volume} onChange={e => set('base_ethanol_volume', e.target.value)} placeholder="e.g. 100" required />
-                </div>
-                <div>
-                  <Label>Ethanol ABV %</Label>
-                  <Input type="number" step="0.1" value={form.base_ethanol_abv} onChange={e => set('base_ethanol_abv', e.target.value)} placeholder="e.g. 96" />
-                </div>
                 <div>
                   <Label>Bottles per Case</Label>
                   <Input type="number" value={form.bottles_per_case} onChange={e => set('bottles_per_case', e.target.value)} placeholder="e.g. 12" />
                 </div>
               </div>
-            </div>
+            )}
 
+            {form.recipe_type === 'spirit' && (
             <div className="rounded-lg border border-border p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Botanicals / Ingredients</p>
@@ -297,6 +332,7 @@ export default function Recipes() {
                 </div>
               ))}
             </div>
+            )}
 
             <div className="rounded-lg border border-border p-4 space-y-3">
               <div className="flex items-center justify-between">

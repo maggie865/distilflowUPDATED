@@ -2,6 +2,15 @@
   "name": "Recipe",
   "type": "object",
   "properties": {
+    "recipe_type": {
+      "type": "string",
+      "enum": [
+        "spirit",
+        "packaging"
+      ],
+      "default": "spirit",
+      "description": "Type of recipe: spirit (gin/distilled product) or packaging (bottle/label configuration)"
+    },
     "name": {
       "type": "string",
       "description": "Product name (e.g. London Dry Gin)"
@@ -86,6 +95,6 @@
   },
   "required": [
     "name",
-    "base_ethanol_volume"
+    "recipe_type"
   ]
 }
