@@ -63,6 +63,15 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
   // Summary stats
   const totalOutLALs = distillations.reduce((s, d) => s + (d.output_lals || 0), 0);
   const totalBottles = bottlings.reduce((s, b) => s + (b.bottles_produced || 0), 0);
+
+  // Collect all unique lot codes across sub-batches for the summary header
+  const allEthanolLots = [...new Set([
+    ...distillations.map(d => d.ethanol_lot_code).filter(Boolean),
+    ...subBatches.map(s => s.ethanol_lot).filter(Boolean),
+  ])];
+  const allBotanicalLots = [...new Set(
+    subBatches.flatMap(s => s.botanical_lots ? s.botanical_lots.split(',').map(l => l.trim()).filter(Boolean) : [])
+  )];
   const products = [...new Set([
     ...distillations.map(d => d.product_name),
     ...bottlings.map(b => b.product_name),
@@ -101,6 +110,20 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
               <span className="text-xs text-muted-foreground">{totalOutLALs.toFixed(3)} LALs</span>
             )}
           </div>
+          {(allEthanolLots.length > 0 || allBotanicalLots.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {allEthanolLots.map(lot => (
+                <span key={lot} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 font-mono">
+                  <FlaskConical className="w-3 h-3" /> {lot}
+                </span>
+              ))}
+              {allBotanicalLots.map(lot => (
+                <span key={lot} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-green-50 border border-green-200 text-green-700 font-mono">
+                  <Leaf className="w-3 h-3" /> {lot}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {latestDate && (
@@ -115,13 +138,12 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
       {expanded && (
         <div className="border-t border-border px-4 pt-5 pb-2">
           {distillations.map((d, i) => {
-            // Match sub-batch by sub_batch_code or by batch_number + run index
-            const sub = subBatches.find(s =>
-              (d.sub_batch_code && s.sub_batch_code === d.sub_batch_code) ||
-              (!d.sub_batch_code && s.master_batch_code === batchNumber)
-            );
+            // Match sub-batch: prefer by sub_batch_code, then by index order
+            const sub = subBatches.find(s => s.sub_batch_code === d.sub_batch_code)
+              || (subBatches.length > i ? subBatches[i] : subBatches[0]);
             const ethanolLot = d.ethanol_lot_code || sub?.ethanol_lot;
-            const botanicalLots = sub?.botanical_lots || d.maceration_notes;
+            // Only use sub.botanical_lots (not maceration_notes which is free text)
+            const botanicalLots = sub?.botanical_lots;
 
             return (
               <StepRow
