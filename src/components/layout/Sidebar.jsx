@@ -10,6 +10,7 @@ import {
   GitBranch,
   Cylinder,
   FlaskConical,
+  TrendingUp,
   ChevronLeft,
   ChevronRight } from
 'lucide-react';
@@ -26,7 +27,8 @@ const navItems = [
 { label: "Tanks", icon: Cylinder, path: '/tanks' },
 { label: 'Batch Tracker', icon: GitBranch, path: '/batch-tracker' },
 { label: 'Raw Materials', icon: Package, path: '/raw-materials' },
-{ label: 'Inventory', icon: Warehouse, path: '/inventory' }];
+{ label: 'Inventory', icon: Warehouse, path: '/inventory' },
+{ label: 'Sales & Dispatch', icon: TrendingUp, path: '/sales' }];
 
 
 export default function Sidebar() {

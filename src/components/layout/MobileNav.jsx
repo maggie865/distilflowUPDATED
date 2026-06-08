@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PackagePlus, Flame, Wine, Cylinder, FlaskConical } from 'lucide-react';
+import { LayoutDashboard, PackagePlus, Flame, Wine, Cylinder, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -8,7 +8,7 @@ const navItems = [
   { label: 'Distill', icon: Flame, path: '/distillation' },
   { label: 'Bottle', icon: Wine, path: '/bottling-floor' },
   { label: 'Tanks', icon: Cylinder, path: '/tanks' },
-  { label: 'Recipes', icon: FlaskConical, path: '/recipes' },
+  { label: 'Sales', icon: TrendingUp, path: '/sales' },
 ];
 
 export default function MobileNav() {

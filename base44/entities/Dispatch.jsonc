@@ -1,0 +1,75 @@
+{
+  "name": "Dispatch",
+  "type": "object",
+  "properties": {
+    "dispatch_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of dispatch"
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Customer or recipient name"
+    },
+    "customer_address": {
+      "type": "string",
+      "description": "Delivery address"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Product dispatched"
+    },
+    "batch_number": {
+      "type": "string",
+      "description": "Source batch number for traceability"
+    },
+    "bottle_size_ml": {
+      "type": "number",
+      "description": "Bottle size in ml"
+    },
+    "quantity_bottles": {
+      "type": "number",
+      "description": "Number of bottles dispatched"
+    },
+    "total_lals": {
+      "type": "number",
+      "description": "Total LALs dispatched"
+    },
+    "transport_distance_km": {
+      "type": "number",
+      "description": "Distance traveled to customer in km"
+    },
+    "transport_method": {
+      "type": "string",
+      "enum": [
+        "road",
+        "courier",
+        "air",
+        "sea",
+        "pickup"
+      ],
+      "description": "Method of transport"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "dispatched",
+        "delivered"
+      ],
+      "default": "dispatched",
+      "description": "Dispatch status"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "dispatch_date",
+    "customer_name",
+    "product_name",
+    "batch_number",
+    "quantity_bottles"
+  ]
+}

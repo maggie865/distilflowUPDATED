@@ -1,0 +1,439 @@
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Plus, Truck, PackageCheck, MapPin, Trash2, Search } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import PageHeader from '@/components/shared/PageHeader';
+import StatusBadge from '@/components/shared/StatusBadge';
+
+const EMPTY_FORM = {
+  dispatch_date: new Date().toISOString().split('T')[0],
+  customer_name: '',
+  customer_address: '',
+  product_name: '',
+  batch_number: '',
+  bottle_size_ml: '',
+  quantity_bottles: '',
+  transport_distance_km: '',
+  transport_method: 'road',
+  status: 'dispatched',
+  notes: '',
+};
+
+export default function Sales() {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [selectedFGId, setSelectedFGId] = useState('');
+  const [deletingDispatch, setDeletingDispatch] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const queryClient = useQueryClient();
+
+  const { data: finishedGoods = [] } = useQuery({
+    queryKey: ['finishedGoods'],
+    queryFn: () => base44.entities.FinishedGood.list('-created_date', 200),
+  });
+
+  const { data: dispatches = [] } = useQuery({
+    queryKey: ['dispatches'],
+    queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 200),
+  });
+
+  // Only sellable stock (not tasting bottles)
+  const sellableGoods = finishedGoods.filter(fg => !fg.product_name?.includes('Tasting'));
+
+  const selectedFG = finishedGoods.find(fg => fg.id === selectedFGId);
+
+  const maxBottles = selectedFG?.quantity_bottles || 0;
+  const qty = parseInt(form.quantity_bottles) || 0;
+  const overStock = qty > maxBottles;
+
+  const handleSelectFG = (id) => {
+    setSelectedFGId(id);
+    const fg = finishedGoods.find(f => f.id === id);
+    if (fg) {
+      setForm(f => ({
+        ...f,
+        product_name: fg.product_name,
+        batch_number: fg.batch_number,
+        bottle_size_ml: fg.bottle_size_ml || '',
+      }));
+    }
+  };
+
+  const resetForm = () => {
+    setForm(EMPTY_FORM);
+    setSelectedFGId('');
+  };
+
+  const dispatchMutation = useMutation({
+    mutationFn: async () => {
+      const lals = selectedFG
+        ? ((qty * (selectedFG.bottle_size_ml || 700)) / 1000) * (selectedFG.abv_percent || 0) / 100
+        : 0;
+
+      // 1. Create dispatch record
+      await base44.entities.Dispatch.create({
+        ...form,
+        quantity_bottles: qty,
+        bottle_size_ml: selectedFG?.bottle_size_ml || null,
+        transport_distance_km: parseFloat(form.transport_distance_km) || null,
+        total_lals: parseFloat(lals.toFixed(4)),
+      });
+
+      // 2. Deduct from finished goods stock
+      if (selectedFG) {
+        const newQty = (selectedFG.quantity_bottles || 0) - qty;
+        const newLals = Math.max(0, (selectedFG.total_lals || 0) - parseFloat(lals.toFixed(4)));
+        if (newQty <= 0) {
+          await base44.entities.FinishedGood.delete(selectedFG.id);
+        } else {
+          await base44.entities.FinishedGood.update(selectedFG.id, {
+            quantity_bottles: newQty,
+            total_lals: parseFloat(newLals.toFixed(4)),
+          });
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
+      setShowForm(false);
+      resetForm();
+      toast.success('Dispatch recorded and stock updated');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (dispatch) => {
+      // Restore stock to the finished good
+      const existing = await base44.entities.FinishedGood.filter({
+        product_name: dispatch.product_name,
+        batch_number: dispatch.batch_number,
+      });
+      if (existing.length > 0) {
+        const fg = existing[0];
+        await base44.entities.FinishedGood.update(fg.id, {
+          quantity_bottles: (fg.quantity_bottles || 0) + (dispatch.quantity_bottles || 0),
+          total_lals: parseFloat(((fg.total_lals || 0) + (dispatch.total_lals || 0)).toFixed(4)),
+        });
+      } else {
+        // Re-create the finished good record if it was fully depleted
+        await base44.entities.FinishedGood.create({
+          product_name: dispatch.product_name,
+          batch_number: dispatch.batch_number,
+          bottle_size_ml: dispatch.bottle_size_ml,
+          quantity_bottles: dispatch.quantity_bottles,
+          total_lals: dispatch.total_lals,
+        });
+      }
+      await base44.entities.Dispatch.delete(dispatch.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
+      setDeletingDispatch(null);
+      toast.success('Dispatch deleted and stock restored');
+    },
+  });
+
+  const filtered = dispatches.filter(d => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return (
+      d.customer_name?.toLowerCase().includes(s) ||
+      d.product_name?.toLowerCase().includes(s) ||
+      d.batch_number?.toLowerCase().includes(s)
+    );
+  });
+
+  // Summary stats
+  const totalBottlesDispatched = dispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
+  const totalLalsDispatched = dispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
+  const totalKm = dispatches.reduce((s, d) => s + (d.transport_distance_km || 0), 0);
+  const uniqueCustomers = new Set(dispatches.map(d => d.customer_name)).size;
+
+  return (
+    <div className="pb-20 md:pb-0">
+      <PageHeader title="Sales & Dispatch" subtitle="Record stock movements and track customer deliveries">
+        <Button onClick={() => setShowForm(true)} className="gap-2">
+          <Plus className="w-4 h-4" />
+          New Dispatch
+        </Button>
+      </PageHeader>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: 'Total Dispatched', value: totalBottlesDispatched.toLocaleString(), sub: 'bottles', icon: PackageCheck, color: 'text-primary', bg: 'bg-accent border-accent-foreground/10' },
+          { label: 'Total LALs Sold', value: totalLalsDispatched.toFixed(2), sub: 'litres abs. alcohol', icon: Truck, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+          { label: 'Customers', value: uniqueCustomers, sub: 'unique recipients', icon: PackageCheck, color: 'text-green-600', bg: 'bg-green-50 border-green-200' },
+          { label: 'Total Distance', value: totalKm.toLocaleString(), sub: 'km traveled', icon: MapPin, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+        ].map(({ label, value, sub, icon: Icon, color, bg }) => (
+          <div key={label} className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
+            <div className="flex items-center gap-2">
+              <Icon className={`w-4 h-4 ${color}`} />
+              <span className="text-xs font-medium text-muted-foreground">{label}</span>
+            </div>
+            <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
+            <p className="text-xs text-muted-foreground">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Dispatch History */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-4 gap-3">
+          <h2 className="text-lg font-semibold">Dispatch History</h2>
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search customer, product, batch…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-8 text-sm"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="text-sm">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Batch</TableHead>
+                <TableHead>Bottles</TableHead>
+                <TableHead>LALs</TableHead>
+                <TableHead>Distance</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                    No dispatches recorded yet
+                  </TableCell>
+                </TableRow>
+              ) : filtered.map(d => (
+                <TableRow key={d.id}>
+                  <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), 'dd MMM yyyy') : '—'}</TableCell>
+                  <TableCell className="font-semibold">{d.customer_name}</TableCell>
+                  <TableCell>{d.product_name}</TableCell>
+                  <TableCell className="font-mono text-xs">{d.batch_number}</TableCell>
+                  <TableCell className="font-semibold">{d.quantity_bottles}</TableCell>
+                  <TableCell>{d.total_lals?.toFixed(3) || '—'}</TableCell>
+                  <TableCell>{d.transport_distance_km ? `${d.transport_distance_km} km` : '—'}</TableCell>
+                  <TableCell className="capitalize">{d.transport_method || '—'}</TableCell>
+                  <TableCell><StatusBadge status={d.status} /></TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => setDeletingDispatch(d)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      {/* New Dispatch Dialog */}
+      <Dialog open={showForm} onOpenChange={v => { setShowForm(v); if (!v) resetForm(); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display">Record Dispatch</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+
+            {/* Product from stock */}
+            <div>
+              <Label>Product (from stock)</Label>
+              <Select value={selectedFGId} onValueChange={handleSelectFG}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select finished good" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sellableGoods.length === 0 && (
+                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">No finished goods in stock</div>
+                  )}
+                  {sellableGoods.map(fg => (
+                    <SelectItem key={fg.id} value={fg.id}>
+                      {fg.product_name} — Batch {fg.batch_number} ({fg.quantity_bottles} btls)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Stock info */}
+            {selectedFG && (
+              <div className="rounded-lg bg-muted px-4 py-3 grid grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">In Stock</p>
+                  <p className="font-semibold">{selectedFG.quantity_bottles} bottles</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Size</p>
+                  <p className="font-semibold">{selectedFG.bottle_size_ml}ml</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Batch</p>
+                  <p className="font-semibold font-mono text-xs">{selectedFG.batch_number}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Quantity */}
+            <div>
+              <Label>Quantity (bottles)</Label>
+              <Input
+                type="number"
+                min="1"
+                max={maxBottles}
+                value={form.quantity_bottles}
+                onChange={e => setForm(f => ({ ...f, quantity_bottles: e.target.value }))}
+                className={`mt-1 ${overStock ? 'border-destructive' : ''}`}
+                placeholder="0"
+              />
+              {overStock && (
+                <p className="text-xs text-destructive mt-1">Exceeds available stock ({maxBottles} bottles)</p>
+              )}
+            </div>
+
+            {/* Customer */}
+            <div>
+              <Label>Customer Name</Label>
+              <Input
+                value={form.customer_name}
+                onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
+                placeholder="e.g. Coastal Liquor"
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label>Customer Address</Label>
+              <Input
+                value={form.customer_address}
+                onChange={e => setForm(f => ({ ...f, customer_address: e.target.value }))}
+                placeholder="Delivery address"
+                className="mt-1"
+              />
+            </div>
+
+            {/* Date */}
+            <div>
+              <Label>Dispatch Date</Label>
+              <Input
+                type="date"
+                value={form.dispatch_date}
+                onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+
+            {/* Transport */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Transport Method</Label>
+                <Select value={form.transport_method} onValueChange={v => setForm(f => ({ ...f, transport_method: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="road">Road</SelectItem>
+                    <SelectItem value="courier">Courier</SelectItem>
+                    <SelectItem value="air">Air</SelectItem>
+                    <SelectItem value="sea">Sea</SelectItem>
+                    <SelectItem value="pickup">Pickup</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Distance (km)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={form.transport_distance_km}
+                  onChange={e => setForm(f => ({ ...f, transport_distance_km: e.target.value }))}
+                  placeholder="0"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Status</Label>
+              <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="dispatched">Dispatched</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Notes</Label>
+              <Input
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Any additional notes"
+                className="mt-1"
+              />
+            </div>
+
+            <Button
+              onClick={() => dispatchMutation.mutate()}
+              disabled={dispatchMutation.isPending || !selectedFGId || !form.customer_name || !qty || overStock}
+              className="w-full h-12 text-base font-semibold"
+            >
+              {dispatchMutation.isPending ? 'Saving…' : 'Record Dispatch & Deduct Stock'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <AlertDialog open={!!deletingDispatch} onOpenChange={v => !v && setDeletingDispatch(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Dispatch?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete the dispatch to <strong>{deletingDispatch?.customer_name}</strong> and restore{' '}
+              <strong>{deletingDispatch?.quantity_bottles} bottles</strong> of{' '}
+              <strong>{deletingDispatch?.product_name}</strong> back to stock.
+              <p className="mt-2 font-medium text-destructive">This cannot be undone.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate(deletingDispatch)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete & Restore Stock'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
