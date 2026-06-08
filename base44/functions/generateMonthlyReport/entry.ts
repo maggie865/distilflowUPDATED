@@ -8,7 +8,10 @@ Deno.serve(async (req) => {
 
     const { month, wastage, receiving, dispatches, rawMaterials, finishedGoods, warehouseStock } = await req.json();
 
+    const REPORTS_FOLDER_ID = '1ur04km9glDy2l8HEleKjhTq9C3qj4GTk';
+
     const { accessToken } = await base44.asServiceRole.connectors.getConnection('googlesheets');
+    const { accessToken: driveToken } = await base44.asServiceRole.connectors.getConnection('googledrive');
 
     const monthLabel = new Date(month + '-01').toLocaleString('en-NZ', { month: 'long', year: 'numeric' });
     const title = `Bluff Distillery — Monthly Report ${monthLabel}`;
@@ -110,6 +113,12 @@ Deno.serve(async (req) => {
         })),
       }),
     });
+
+    // Move file into the Reports folder
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${REPORTS_FOLDER_ID}&removeParents=root&fields=id,parents`,
+      { method: 'PATCH', headers: { 'Authorization': `Bearer ${driveToken}` } }
+    );
 
     return Response.json({ spreadsheet_url: spreadsheetUrl, spreadsheet_id: spreadsheetId });
   } catch (error) {
