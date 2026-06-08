@@ -22,6 +22,7 @@ const EMPTY_DISPATCH = {
   dispatch_date: new Date().toISOString().split('T')[0],
   customer_name: '',
   customer_address: '',
+  quantity_bottles: '',
   transport_method: 'road',
   transport_distance_km: '',
   status: 'dispatched',
