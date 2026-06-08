@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Trash2, Users, MapPin, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Users, MapPin, RefreshCw, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 
@@ -18,6 +18,8 @@ export default function Customers() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [deletingCustomer, setDeletingCustomer] = useState(null);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [syncing, setSyncing] = useState(false);
   const queryClient = useQueryClient();
 
@@ -41,6 +43,19 @@ export default function Customers() {
       setShowForm(false);
       setForm(EMPTY_FORM);
       toast.success('Customer added');
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: () => base44.functions.invoke('updateCustomerInSheet', {
+      id: editingCustomer.id,
+      business_name: editForm.business_name,
+      delivery_address: editForm.delivery_address,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setEditingCustomer(null);
+      toast.success('Customer updated');
     },
   });
 
@@ -100,7 +115,13 @@ export default function Customers() {
                   <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                   {c.delivery_address}
                 </TableCell>
-                <TableCell>
+                <TableCell className="flex gap-1 justify-end">
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7"
+                    onClick={() => { setEditingCustomer(c); setEditForm({ business_name: c.business_name, delivery_address: c.delivery_address }); }}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
                   <Button
                     variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
                     onClick={() => setDeletingCustomer(c)}
@@ -145,6 +166,40 @@ export default function Customers() {
               className="w-full"
             >
               {createMutation.isPending ? 'Saving…' : 'Add Customer'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Customer Dialog */}
+      <Dialog open={!!editingCustomer} onOpenChange={v => !v && setEditingCustomer(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Customer</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label>Business Name</Label>
+              <Input
+                value={editForm.business_name}
+                onChange={e => setEditForm(f => ({ ...f, business_name: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Delivery Address</Label>
+              <Input
+                value={editForm.delivery_address}
+                onChange={e => setEditForm(f => ({ ...f, delivery_address: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+            <Button
+              onClick={() => editMutation.mutate()}
+              disabled={editMutation.isPending || !editForm.business_name || !editForm.delivery_address}
+              className="w-full"
+            >
+              {editMutation.isPending ? 'Saving…' : 'Save Changes'}
             </Button>
           </div>
         </DialogContent>
