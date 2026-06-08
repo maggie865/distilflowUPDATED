@@ -271,6 +271,8 @@ export default function Distillation() {
       }
 
       // FIFO stock depletion only on create (when ingredients are scaled)
+      // Capture which lot codes were actually consumed for traceability
+      const usedBotanicalLots = new Set();
       for (const ing of scaledIngredients) {
         let remaining = ing.scaledQuantity;
         for (const lot of ing.lots) {
@@ -278,8 +280,20 @@ export default function Distillation() {
           const deduct = Math.min(lot.quantity || 0, remaining);
           if (deduct > 0) {
             await base44.entities.RawMaterial.update(lot.id, { quantity: parseFloat((lot.quantity - deduct).toFixed(4)) });
+            const lotLabel = lot.batch_number ? `${ing.name} (${lot.batch_number})` : ing.name;
+            usedBotanicalLots.add(lotLabel);
           }
           remaining -= deduct;
+        }
+      }
+
+      // Patch the SubBatch with captured botanical lot codes so BatchTracker can display them
+      if (usedBotanicalLots.size > 0 && data.batch_number && data.sub_batch_code) {
+        const subBatchList = await base44.entities.SubBatch.filter({ sub_batch_code: data.sub_batch_code }, '-created_date', 1);
+        if (subBatchList.length > 0) {
+          await base44.entities.SubBatch.update(subBatchList[0].id, {
+            botanical_lots: [...usedBotanicalLots].join(', '),
+          });
         }
       }
     },
@@ -453,7 +467,7 @@ export default function Distillation() {
 
             {/* Input / Still conditions */}
             <div className="rounded-lg border border-border p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Input & Still Conditions</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Input &amp; Still Conditions</p>
 
               {/* Source tank selector */}
               <div>
@@ -562,10 +576,17 @@ export default function Distillation() {
                         <span className="font-semibold text-primary">{ing.scaledQuantity} {ing.unit}</span>
                       </div>
                       {ing.lots.length > 0 ? (
-                        <p className={`text-xs mt-0.5 ml-5 ${ing.sufficient ? 'text-muted-foreground' : 'text-amber-600'}`}>
-                          {ing.totalStock.toFixed(2)} {ing.unit} in stock across {ing.lots.length} lot{ing.lots.length > 1 ? 's' : ''}
-                          {!ing.sufficient && ` — short by ${(ing.scaledQuantity - ing.totalStock).toFixed(2)} ${ing.unit}`}
-                        </p>
+                        <div className="ml-5 mt-0.5 space-y-0.5">
+                          <p className={`text-xs ${ing.sufficient ? 'text-muted-foreground' : 'text-amber-600'}`}>
+                            {ing.totalStock.toFixed(2)} {ing.unit} in stock across {ing.lots.length} lot{ing.lots.length > 1 ? 's' : ''}
+                            {!ing.sufficient && ` — short by ${(ing.scaledQuantity - ing.totalStock).toFixed(2)} ${ing.unit}`}
+                          </p>
+                          {ing.lots.filter(l => l.batch_number).map(l => (
+                            <span key={l.id} className="inline-flex items-center gap-1 text-xs font-mono bg-green-50 border border-green-200 text-green-700 px-1.5 py-0.5 rounded mr-1">
+                              {l.batch_number} ({l.quantity?.toFixed(2)} {ing.unit})
+                            </span>
+                          ))}
+                        </div>
                       ) : (
                         <p className="text-xs mt-0.5 ml-5 text-destructive">Not found in stock</p>
                       )}
