@@ -17,7 +17,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Trash2 } from
+  Trash2,
+  Settings as SettingsIcon } from
 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -47,22 +48,14 @@ const navItems = [
 { label: 'Sales & Dispatch', icon: TrendingUp, path: '/sales' },
 { label: '3PL Warehouse', icon: Building2, path: '/warehouse' },
 { label: 'Customers', icon: Users, path: '/customers' },
-{ label: 'Reports', icon: BarChart2, path: '/reports' }];
+{ label: 'Reports', icon: BarChart2, path: '/reports' },
+{ label: 'Settings', icon: Settings, path: '/settings' }];
 
 
 export default function Sidebar() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const { logout, deleteAccount } = useAuth();
-
-  const handleDeleteAccount = async () => {
-    try {
-      await deleteAccount();
-    } catch (error) {
-      console.error('Failed to delete account:', error);
-    }
-  };
+  const { logout } = useAuth();
 
   return (
     <aside className={cn(
@@ -108,17 +101,17 @@ export default function Sidebar() {
 
       {/* Footer with user actions */}
       <div className="border-t border-sidebar-border p-3 space-y-2">
+        <Link
+          to="/settings"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-200">
+          <SettingsIcon className="w-[18px] h-[18px] flex-shrink-0" />
+          {!collapsed && <span>Settings</span>}
+        </Link>
         <button
           onClick={() => logout()}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-200">
           <LogOut className="w-[18px] h-[18px] flex-shrink-0" />
           {!collapsed && <span>Logout</span>}
-        </button>
-        <button
-          onClick={() => setShowDeleteDialog(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-all duration-200">
-          <Trash2 className="w-[18px] h-[18px] flex-shrink-0" />
-          {!collapsed && <span>Delete Account</span>}
         </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -127,28 +120,7 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Your Account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. All your data will be permanently deleted from the system.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 mt-4">
-            <Trash2 className="w-4 h-4 text-destructive flex-shrink-0" />
-            <p className="text-sm text-destructive font-medium">This will delete your account and all associated data.</p>
-          </div>
-          <div className="flex gap-3 mt-6">
-            <AlertDialogCancel asChild>
-              <Button variant="outline">Cancel</Button>
-            </AlertDialogCancel>
-            <AlertDialogAction asChild>
-              <Button variant="destructive" onClick={handleDeleteAccount}>Delete Account</Button>
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+
     </aside>);
 
 }

@@ -26,6 +26,7 @@ import Sales from '@/pages/Sales';
 import Customers from '@/pages/Customers';
 import Warehouse from '@/pages/Warehouse';
 import Reports from '@/pages/Reports';
+import Settings from '@/pages/Settings';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -70,6 +71,7 @@ const AuthenticatedApp = () => {
           <Route path="/customers" element={<Customers />} />
           <Route path="/warehouse" element={<Warehouse />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />
