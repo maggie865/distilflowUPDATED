@@ -18,6 +18,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 const BLANK_FORM = {
   date: new Date().toISOString().split('T')[0],
   source_tank_id: '',
+  destination_tank_id: '',
   input_volume: '',
   input_abv: '',
   output_volume: '',
