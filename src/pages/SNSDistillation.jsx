@@ -73,6 +73,27 @@ export default function SNSDistillation() {
     setOpen(true);
   };
 
+  const handleEdit = (run) => {
+    setEditingId(run.id);
+    setForm({
+      date: run.date,
+      source_tank_id: run.source_tank_id,
+      destination_tank_ids: run.destination_tank_ids || [],
+      input_volume: run.input_volume?.toString() || '',
+      input_abv: run.input_abv?.toString() || '',
+      input_lals: run.input_lals?.toString() || '',
+      hearts_volume: run.hearts_volume?.toString() || '',
+      hearts_abv: run.hearts_abv?.toString() || '',
+      hearts_lals: run.hearts_lals?.toString() || '',
+      dumped_volume: run.dumped_volume?.toString() || '',
+      dumped_abv: run.dumped_abv?.toString() || '',
+      dumped_notes: run.dumped_notes || '',
+      status: run.status || 'completed',
+      notes: run.notes || '',
+    });
+    setOpen(true);
+  };
+
   const handleTankChange = (tankId) => {
     set('source_tank_id', tankId);
     const tank = tanks.find(t => t.id === tankId);
@@ -416,6 +437,7 @@ export default function SNSDistillation() {
                 <TableHead>Hearts LALs</TableHead>
                 <TableHead>Dumped Vol (L)</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -437,7 +459,18 @@ export default function SNSDistillation() {
                     <TableCell className="text-sm font-semibold">{heartsLals.toFixed(3)}</TableCell>
                     <TableCell className="text-sm">{run.dumped_volume?.toFixed(2) || '—'}</TableCell>
                     <TableCell><StatusBadge status={run.status} /></TableCell>
-                  </TableRow>
+                    <TableCell>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleEdit(run)}
+                        className="gap-2"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </Button>
+                    </TableCell>
+                    </TableRow>
                 );
                })}
             </TableBody>
