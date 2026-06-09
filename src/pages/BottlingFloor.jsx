@@ -380,7 +380,15 @@ export default function BottlingFloor() {
                 value={selectedBatchId}
                 onValueChange={v => {
                   setSelectedBatchId(v);
-                  setSelectedTankId(''); // reset tank when batch changes
+                  const batch = masterBatches.find(b => b.id === v);
+                  const batchTankList = batch
+                    ? finishingTanks.filter(t =>
+                        t.current_batch === batch.batch_code ||
+                        t.current_product === batch.product_name
+                      )
+                    : [];
+                  // Auto-select tank if only one matches
+                  setSelectedTankId(batchTankList.length === 1 ? batchTankList[0].id : '');
                 }}
               >
                 <SelectTrigger><SelectValue placeholder="Select a batch ready to bottle" /></SelectTrigger>
