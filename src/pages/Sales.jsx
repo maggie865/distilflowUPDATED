@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Truck, PackageCheck, MapPin, Trash2, Search, Users, Map } from 'lucide-react';
+import { Plus, Truck, PackageCheck, MapPin, Trash2, Search, Users, Map, Pencil, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -39,6 +39,9 @@ export default function Sales() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [selectedFGId, setSelectedFGId] = useState('');
   const [deletingDispatch, setDeletingDispatch] = useState(null);
+  const [editingDispatch, setEditingDispatch] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [returningDispatch, setReturningDispatch] = useState(null);
   const [search, setSearch] = useState('');
   const [showMap, setShowMap] = useState(false);
   const [calcingDistance, setCalcingDistance] = useState(false);
@@ -141,6 +144,54 @@ export default function Sales() {
       setShowForm(false);
       resetForm();
       toast.success('Dispatch recorded and stock updated');
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Dispatch.update(editingDispatch.id, {
+        status: editForm.status,
+        notes: editForm.notes,
+        dispatch_date: editForm.dispatch_date,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      setEditingDispatch(null);
+      toast.success('Dispatch updated');
+    },
+  });
+
+  const returnMutation = useMutation({
+    mutationFn: async (dispatch) => {
+      // Restore stock
+      const existing = await base44.entities.FinishedGood.filter({
+        product_name: dispatch.product_name,
+        batch_number: dispatch.batch_number,
+      });
+      if (existing.length > 0) {
+        const fg = existing[0];
+        await base44.entities.FinishedGood.update(fg.id, {
+          quantity_bottles: (fg.quantity_bottles || 0) + (dispatch.quantity_bottles || 0),
+          total_lals: parseFloat(((fg.total_lals || 0) + (dispatch.total_lals || 0)).toFixed(4)),
+        });
+      } else {
+        await base44.entities.FinishedGood.create({
+          product_name: dispatch.product_name,
+          batch_number: dispatch.batch_number,
+          bottle_size_ml: dispatch.bottle_size_ml,
+          quantity_bottles: dispatch.quantity_bottles,
+          total_lals: dispatch.total_lals,
+        });
+      }
+      // Mark dispatch as returned (keep the record)
+      await base44.entities.Dispatch.update(dispatch.id, { status: 'pending', notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]') });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
+      setReturningDispatch(null);
+      toast.success('Stock returned and dispatch marked as returned');
     },
   });
 
@@ -279,12 +330,29 @@ export default function Sales() {
                   <TableCell className="capitalize">{d.transport_method || '—'}</TableCell>
                   <TableCell><StatusBadge status={d.status} /></TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={() => setDeletingDispatch(d)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex gap-1 justify-end">
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7"
+                        title="Edit"
+                        onClick={() => { setEditingDispatch(d); setEditForm({ status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date }); }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700"
+                        title="Return stock"
+                        onClick={() => setReturningDispatch(d)}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                        title="Delete"
+                        onClick={() => setDeletingDispatch(d)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -454,7 +522,6 @@ export default function Sales() {
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="dispatched">Dispatched</SelectItem>
-                  <SelectItem value="delivered">Delivered</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -479,6 +546,75 @@ export default function Sales() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Dispatch Dialog */}
+      <Dialog open={!!editingDispatch} onOpenChange={v => !v && setEditingDispatch(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Dispatch</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label>Dispatch Date</Label>
+              <Input
+                type="date"
+                value={editForm.dispatch_date || ''}
+                onChange={e => setEditForm(f => ({ ...f, dispatch_date: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="dispatched">Dispatched</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Input
+                value={editForm.notes || ''}
+                onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+            <Button
+              onClick={() => editMutation.mutate()}
+              disabled={editMutation.isPending}
+              className="w-full"
+            >
+              {editMutation.isPending ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return Stock Confirm */}
+      <AlertDialog open={!!returningDispatch} onOpenChange={v => !v && setReturningDispatch(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Return Stock?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will restore <strong>{returningDispatch?.quantity_bottles} bottles</strong> of{' '}
+              <strong>{returningDispatch?.product_name}</strong> back to finished goods stock.
+              The dispatch record will be kept and marked as returned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => returnMutation.mutate(returningDispatch)}
+              disabled={returnMutation.isPending}
+            >
+              {returnMutation.isPending ? 'Returning…' : 'Return Stock'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirm */}
       <AlertDialog open={!!deletingDispatch} onOpenChange={v => !v && setDeletingDispatch(null)}>
