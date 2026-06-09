@@ -171,6 +171,21 @@ export default function Warehouse() {
     mutationFn: async () => {
       const ws = selectedWS;
       const lals = ((dispatchQty * (ws.bottle_size_ml || 700)) / 1000) * (ws.abv_percent || 0) / 100;
+      const weight = calcWeightKg(ws.bottle_size_ml, dispatchQty);
+      const distance = parseFloat(dispatchForm.transport_distance_km) || 0;
+      const method = dispatchForm.transport_method || 'courier';
+      
+      // Calculate CO2e
+      let co2e = 0;
+      if (method === 'road' && distance > 0) {
+        co2e = (distance * weight / 1000) * 0.12;
+      } else if (method === 'courier' && distance > 0) {
+        co2e = (distance * weight / 1000) * 0.15;
+      } else if (method === 'air' && distance > 0) {
+        co2e = (distance * weight / 1000) * 0.55;
+      } else if (method === 'sea' && distance > 0) {
+        co2e = (distance * weight / 1000) * 0.008;
+      }
 
       await base44.entities.Dispatch.create({
         ...dispatchForm,
@@ -179,7 +194,9 @@ export default function Warehouse() {
         bottle_size_ml: ws.bottle_size_ml,
         quantity_bottles: dispatchQty,
         total_lals: parseFloat(lals.toFixed(4)),
-        transport_distance_km: parseFloat(dispatchForm.transport_distance_km) || null,
+        parcel_weight_kg: weight,
+        transport_distance_km: distance,
+        co2e_kg: parseFloat(co2e.toFixed(3)),
         notes: `[3PL] ${dispatchForm.notes}`.trim(),
       });
 
@@ -349,8 +366,8 @@ export default function Warehouse() {
                 <TableHead>Product</TableHead>
                 <TableHead>Batch</TableHead>
                 <TableHead>Bottles</TableHead>
-                <TableHead>LALs</TableHead>
                 <TableHead>Method</TableHead>
+                <TableHead>CO2e</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -368,8 +385,8 @@ export default function Warehouse() {
                   <TableCell>{d.product_name}</TableCell>
                   <TableCell className="font-mono text-xs">{d.batch_number}</TableCell>
                   <TableCell className="font-semibold">{d.quantity_bottles}</TableCell>
-                  <TableCell>{d.total_lals?.toFixed(3) || '—'}</TableCell>
                   <TableCell className="capitalize">{d.transport_method || '—'}</TableCell>
+                  <TableCell className="font-semibold text-green-600">{d.co2e_kg ? `${d.co2e_kg.toFixed(3)} kg` : '—'}</TableCell>
                   <TableCell><StatusBadge status={d.status} /></TableCell>
                 </TableRow>
               ))}
