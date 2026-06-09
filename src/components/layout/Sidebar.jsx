@@ -49,7 +49,7 @@ const navItems = [
 { label: '3PL Warehouse', icon: Building2, path: '/warehouse' },
 { label: 'Customers', icon: Users, path: '/customers' },
 { label: 'Reports', icon: BarChart2, path: '/reports' },
-{ label: 'Settings', icon: Settings, path: '/settings' }];
+{ label: 'Settings', icon: SettingsIcon, path: '/settings' }];
 
 
 export default function Sidebar() {
