@@ -11,6 +11,13 @@
       "type": "string",
       "description": "ID of the storage tank containing heads and tails to be stripped"
     },
+    "destination_tank_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs of destination tanks for hearts (in priority order, overflow if full)"
+    },
     "input_volume": {
       "type": "number",
       "description": "Input volume from the source tank (litres)"

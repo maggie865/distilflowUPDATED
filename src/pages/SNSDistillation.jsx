@@ -18,7 +18,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 const BLANK_FORM = {
   date: new Date().toISOString().split('T')[0],
   source_tank_id: '',
-  destination_tank_id: '',
+  destination_tank_ids: [],
   input_volume: '',
   input_abv: '',
   input_lals: '',
@@ -130,19 +130,36 @@ export default function SNSDistillation() {
       await base44.entities.SNSRun.update(editingId, payload);
       toast.success('SNS run updated');
     } else {
-      await base44.entities.SNSRun.create(payload);
+      const finalPayload = {
+        ...payload,
+        destination_tank_ids: form.destination_tank_ids,
+      };
       
-      // Transfer hearts to destination tank if specified
-      if (form.destination_tank_id) {
-        const destTank = tanks.find(t => t.id === form.destination_tank_id);
-        if (destTank) {
-          const newVolume = Math.min((destTank.current_volume || 0) + parseFloat(form.hearts_volume), destTank.capacity_litres);
-          await base44.entities.StorageTank.update(form.destination_tank_id, {
-            current_volume: newVolume,
-            current_abv: parseFloat(form.hearts_abv),
-            current_product: 'High ABV Ethanol (SNS)',
-            status: 'in_use',
-          });
+      await base44.entities.SNSRun.create(finalPayload);
+      
+      // Distribute hearts across destination tanks with overflow
+      if (form.destination_tank_ids && form.destination_tank_ids.length > 0) {
+        let remainingVolume = parseFloat(form.hearts_volume);
+        
+        for (const tankId of form.destination_tank_ids) {
+          if (remainingVolume <= 0) break;
+          
+          const destTank = tanks.find(t => t.id === tankId);
+          if (destTank) {
+            const availableSpace = destTank.capacity_litres - (destTank.current_volume || 0);
+            const volumeToAdd = Math.min(availableSpace, remainingVolume);
+            
+            if (volumeToAdd > 0) {
+              const newVolume = (destTank.current_volume || 0) + volumeToAdd;
+              await base44.entities.StorageTank.update(tankId, {
+                current_volume: newVolume,
+                current_abv: parseFloat(form.hearts_abv),
+                current_product: 'High ABV Ethanol (SNS)',
+                status: 'in_use',
+              });
+              remainingVolume -= volumeToAdd;
+            }
+          }
         }
       }
       
@@ -156,7 +173,7 @@ export default function SNSDistillation() {
         });
       }
       
-      toast.success('SNS run recorded');
+      toast.success('SNS run recorded and hearts distributed');
     }
 
     queryClient.invalidateQueries({ queryKey: ['snsRuns'] });
@@ -218,26 +235,54 @@ export default function SNSDistillation() {
             </div>
 
             <div className="rounded-lg border border-border p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Destination tank (SNS storage)</p>
-              <Select value={form.destination_tank_id} onValueChange={v => set('destination_tank_id', v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose destination tank..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {snsTanks.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">No SNS tanks available</div>
-                  ) : snsTanks.map(t => (
-                    <SelectItem key={t.id} value={t.id}>
-                      Tank {t.name} — {t.capacity_litres}L capacity {t.status === 'empty' ? '(empty)' : `(${t.current_volume}L in use)`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {destinationTank && form.output_volume && (
-                <p className="text-xs text-primary font-medium">
-                  Tank {destinationTank.name} → {Math.min((destinationTank.current_volume || 0) + parseFloat(form.output_volume), destinationTank.capacity_litres).toFixed(1)}L / {destinationTank.capacity_litres}L
-                </p>
-              )}
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Destination tanks (SNS storage) — fill in order, overflow to next</p>
+              <div className="space-y-2">
+                {form.destination_tank_ids.map((tankId, idx) => (
+                  <div key={idx} className="flex gap-2 items-end">
+                    <Select 
+                      value={tankId} 
+                      onValueChange={v => {
+                        const updated = [...form.destination_tank_ids];
+                        updated[idx] = v;
+                        set('destination_tank_ids', updated);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select tank..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {snsTanks.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground text-center">No SNS tanks available</div>
+                        ) : snsTanks.map(t => (
+                          <SelectItem key={t.id} value={t.id}>
+                            Tank {t.name} — {t.capacity_litres}L {t.status === 'empty' ? '(empty)' : `(${t.current_volume}L in use)`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const updated = form.destination_tank_ids.filter((_, i) => i !== idx);
+                        set('destination_tank_ids', updated);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => set('destination_tank_ids', [...form.destination_tank_ids, ''])}
+                  className="w-full"
+                >
+                  + Add Tank
+                </Button>
+              </div>
             </div>
 
             <div className="rounded-lg border border-border p-4 space-y-3">
