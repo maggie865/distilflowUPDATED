@@ -18,12 +18,13 @@ import TankCard from '@/components/tanks/TankCard';
 import TransferDialog from '@/components/tanks/TransferDialog';
 
 // All known purposes — new tanks will auto-appear in the correct group via their purpose field
-const GROUP_ORDER = ['maceration_dilution', 'diluted_ethanol', 'final_product_storage', 'ibc', 'spare'];
+const GROUP_ORDER = ['maceration_dilution', 'diluted_ethanol', 'final_product_storage', 'ibc', 'sns', 'spare'];
 const GROUP_LABELS = {
   maceration_dilution: 'Maceration & Dilution Tanks',
   final_product_storage: 'Final Product Holding Tanks',
   diluted_ethanol: 'Diluted Ethanol Tanks (Outdoor)',
   ibc: 'IBC — Heads & Tails',
+  sns: 'SNS Distillation',
   spare: 'Spare',
 };
 
@@ -58,6 +59,7 @@ const PURPOSE_OPTIONS = [
   { value: 'maceration_dilution', label: 'Maceration & Dilution (E, F, H type)' },
   { value: 'diluted_ethanol', label: 'Diluted Ethanol Outdoor (X, Y type)' },
   { value: 'ibc', label: 'IBC — Heads & Tails' },
+  { value: 'sns', label: 'SNS Distillation Destination' },
   { value: 'spare', label: 'Spare' },
 ];
 
