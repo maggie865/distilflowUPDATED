@@ -138,7 +138,11 @@ export default function Customers() {
 
       {/* Add Customer Dialog */}
       <Dialog open={showForm} onOpenChange={v => { setShowForm(v); if (!v) setForm(EMPTY_FORM); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent
+          className="max-w-md"
+          onInteractOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
+          onPointerDownOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
+        >
           <DialogHeader>
             <DialogTitle className="font-display">Add Customer</DialogTitle>
           </DialogHeader>
@@ -174,7 +178,11 @@ export default function Customers() {
 
       {/* Edit Customer Dialog */}
       <Dialog open={!!editingCustomer} onOpenChange={v => !v && setEditingCustomer(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent
+          className="max-w-md"
+          onInteractOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
+          onPointerDownOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
+        >
           <DialogHeader>
             <DialogTitle className="font-display">Edit Customer</DialogTitle>
           </DialogHeader>
