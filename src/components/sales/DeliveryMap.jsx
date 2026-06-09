@@ -5,9 +5,8 @@ import { Button } from '@/components/ui/button';
 import { MapPin, Loader2, RefreshCw } from 'lucide-react';
 
 // Distillery origin — update this to your actual address
-const DISTILLERY_ADDRESS = '10 Tawa Drive, Albany, Auckland, New Zealand';
-
-export default function DeliveryMap({ dispatches, customers }) {
+export default function DeliveryMap({ dispatches, customers, distilleryOrigin }) {
+  const DISTILLERY_ADDRESS = distilleryOrigin || '250 Ocean Beach Road, Bluff, New Zealand';
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -35,8 +34,8 @@ export default function DeliveryMap({ dispatches, customers }) {
   const initMap = () => {
     if (!mapRef.current || mapInstanceRef.current) return;
     mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-      center: { lat: -36.85, lng: 174.76 }, // Auckland default
-      zoom: 7,
+      center: { lat: -46.6, lng: 168.33 }, // Bluff, NZ default
+      zoom: 6,
       mapTypeControl: false,
       streetViewControl: false,
     });

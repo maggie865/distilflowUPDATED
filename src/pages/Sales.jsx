@@ -10,12 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Truck, PackageCheck, MapPin, Trash2, Search, Users } from 'lucide-react';
+import { Plus, Truck, PackageCheck, MapPin, Trash2, Search, Users, Map } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
+import DeliveryMap from '@/components/sales/DeliveryMap';
+
+const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 
 const EMPTY_FORM = {
   dispatch_date: new Date().toISOString().split('T')[0],
@@ -37,6 +40,8 @@ export default function Sales() {
   const [selectedFGId, setSelectedFGId] = useState('');
   const [deletingDispatch, setDeletingDispatch] = useState(null);
   const [search, setSearch] = useState('');
+  const [showMap, setShowMap] = useState(false);
+  const [calcingDistance, setCalcingDistance] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -80,6 +85,20 @@ export default function Sales() {
   const resetForm = () => {
     setForm(EMPTY_FORM);
     setSelectedFGId('');
+  };
+
+  const calculateDistance = async (customerAddress) => {
+    if (!customerAddress) return;
+    setCalcingDistance(true);
+    const res = await base44.functions.invoke('getDistanceMatrix', {
+      origin: DISTILLERY_ORIGIN,
+      destination: customerAddress,
+    });
+    if (res.data?.distance_km) {
+      setForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
+      toast.success(`Distance: ${res.data.distance_km} km (${res.data.duration_text})`);
+    }
+    setCalcingDistance(false);
   };
 
   const dispatchMutation = useMutation({
@@ -134,7 +153,6 @@ export default function Sales() {
           total_lals: parseFloat(((fg.total_lals || 0) + (dispatch.total_lals || 0)).toFixed(4)),
         });
       } else {
-        // Re-create the finished good record if it was fully depleted
         await base44.entities.FinishedGood.create({
           product_name: dispatch.product_name,
           batch_number: dispatch.batch_number,
@@ -172,11 +190,21 @@ export default function Sales() {
   return (
     <div className="pb-20 md:pb-0">
       <PageHeader title="Sales & Dispatch" subtitle="Record stock movements and track customer deliveries">
+        <Button variant="outline" onClick={() => setShowMap(v => !v)} className="gap-2">
+          <Map className="w-4 h-4" />
+          {showMap ? 'Hide Map' : 'Delivery Map'}
+        </Button>
         <Button onClick={() => setShowForm(true)} className="gap-2">
           <Plus className="w-4 h-4" />
           New Dispatch
         </Button>
       </PageHeader>
+
+      {showMap && (
+        <div className="mb-6">
+          <DeliveryMap dispatches={dispatches} customers={customers} distilleryOrigin={DISTILLERY_ORIGIN} />
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -335,11 +363,9 @@ export default function Sales() {
                 value={form.customer_name}
                 onValueChange={v => {
                   const c = customers.find(c => c.business_name === v);
-                  setForm(f => ({
-                    ...f,
-                    customer_name: v,
-                    customer_address: c?.delivery_address || '',
-                  }));
+                  const addr = c?.delivery_address || '';
+                  setForm(f => ({ ...f, customer_name: v, customer_address: addr }));
+                  if (addr) calculateDistance(addr);
                 }}
               >
                 <SelectTrigger className="mt-1">
@@ -361,7 +387,6 @@ export default function Sales() {
               )}
             </div>
 
-            {/* hidden address field no longer needed — auto-filled from customer */}
             {/* Date */}
             <div>
               <Label>Dispatch Date</Label>
@@ -390,14 +415,30 @@ export default function Sales() {
               </div>
               <div>
                 <Label>Distance (km)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={form.transport_distance_km}
-                  onChange={e => setForm(f => ({ ...f, transport_distance_km: e.target.value }))}
-                  placeholder="0"
-                  className="mt-1"
-                />
+                <div className="relative mt-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.transport_distance_km}
+                    onChange={e => setForm(f => ({ ...f, transport_distance_km: e.target.value }))}
+                    placeholder={calcingDistance ? 'Calculating…' : '0'}
+                    disabled={calcingDistance}
+                  />
+                  {calcingDistance && (
+                    <div className="absolute right-2.5 top-2.5">
+                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+                {form.customer_address && !calcingDistance && !form.transport_distance_km && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline mt-1"
+                    onClick={() => calculateDistance(form.customer_address)}
+                  >
+                    Auto-calculate from address
+                  </button>
+                )}
               </div>
             </div>
 
