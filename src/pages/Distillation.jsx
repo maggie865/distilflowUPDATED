@@ -430,7 +430,14 @@ export default function Distillation() {
               </div>
               <div className="col-span-2">
                 <Label>Product Name</Label>
-                <Input value={form.product_name} onChange={e => set('product_name', e.target.value)} required />
+                {selectedRecipe ? (
+                  <div className="h-9 flex items-center px-3 rounded-md border border-primary/30 bg-primary/5 text-sm font-medium text-primary">
+                    {form.product_name}
+                    <span className="ml-auto text-xs text-muted-foreground font-normal">from recipe</span>
+                  </div>
+                ) : (
+                  <Input value={form.product_name} onChange={e => set('product_name', e.target.value)} placeholder="Select a recipe above, or enter manually" required />
+                )}
               </div>
             </div>
 
