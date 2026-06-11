@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,7 +42,7 @@ export default function SNSDistillation() {
     queryKey: ['snsRuns'],
     queryFn: async () => {
       try {
-        return await base44.entities.SNSRun.list('-date', 50);
+        return await db.SNSRun.list('-date', 50);
       } catch {
         return [];
       }
@@ -51,7 +51,7 @@ export default function SNSDistillation() {
 
   const { data: tanks = [] } = useQuery({
     queryKey: ['storageTanks'],
-    queryFn: () => base44.entities.StorageTank.list('name', 50),
+    queryFn: () => db.StorageTank.list('name', 50),
   });
 
   // Tanks with heads/tails content (IBC tanks designated for heads & tails)
@@ -159,7 +159,7 @@ export default function SNSDistillation() {
     };
 
     if (editingId) {
-      await base44.entities.SNSRun.update(editingId, payload);
+      await db.SNSRun.update(editingId, payload);
       toast.success('SNS run updated');
     } else {
       const finalPayload = {
@@ -167,7 +167,7 @@ export default function SNSDistillation() {
         destination_tank_ids: form.destination_tank_ids,
       };
       
-      await base44.entities.SNSRun.create(finalPayload);
+      await db.SNSRun.create(finalPayload);
       
       // Distribute hearts across destination tanks with overflow
       if (form.destination_tank_ids && form.destination_tank_ids.length > 0) {
@@ -183,7 +183,7 @@ export default function SNSDistillation() {
             
             if (volumeToAdd > 0) {
               const newVolume = (destTank.current_volume || 0) + volumeToAdd;
-              await base44.entities.StorageTank.update(tankId, {
+              await db.StorageTank.update(tankId, {
                 current_volume: newVolume,
                 current_abv: parseFloat(form.hearts_abv),
                 current_product: 'High ABV Ethanol (SNS)',
@@ -197,7 +197,7 @@ export default function SNSDistillation() {
       
       // Clear the source tank after completion
       if (selectedTank) {
-        await base44.entities.StorageTank.update(form.source_tank_id, {
+        await db.StorageTank.update(form.source_tank_id, {
           current_volume: 0,
           current_abv: 0,
           current_product: '',
