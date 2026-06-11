@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, RefreshCw } from 'lucide-react';
+import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, RefreshCw, Sheet } from 'lucide-react';
 
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -302,6 +302,107 @@ export default function Receiving() {
     },
   });
 
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncFromSheet = async () => {
+    if (!confirm('This will import all rows from the Google Sheet as Receiving records, skipping any that already exist (matched by batch number + material name). Continue?')) return;
+    setSyncing(true);
+    try {
+      const res = await base44.functions.invoke('readSheetReceiving', {});
+      const sheetRecords = res.data?.records || [];
+      if (sheetRecords.length === 0) {
+        toast.error('No records found in sheet');
+        return;
+      }
+
+      // Get existing receivings to avoid duplicates
+      const existing = await base44.entities.Receiving.list('-date_received', 500);
+      const existingKeys = new Set(existing.map(r => `${r.batch_number}__${r.material_name}`));
+
+      let created = 0;
+      let skipped = 0;
+
+      for (const r of sheetRecords) {
+        const key = `${r.batch_number}__${r.material_name}`;
+        if (existingKeys.has(key)) { skipped++; continue; }
+
+        const VALID_TYPES = ['Ethanol', 'Botanicals', 'Packaging', 'Grain', 'Sugar', 'Water', 'Flavoring', 'Other'];
+        const VALID_UNITS = ['litres', 'kg', 'units'];
+        const VALID_METHODS = ['road', 'courier', 'air', 'sea'];
+
+        // Normalise type
+        const rawType = r.material_type || '';
+        const matchedType = VALID_TYPES.find(t => t.toLowerCase() === rawType.toLowerCase())
+          || VALID_TYPES.find(t => t.toLowerCase().startsWith(rawType.toLowerCase()))
+          || 'Other';
+
+        const lals = matchedType === 'Ethanol' && r.abv_percent && r.quantity
+          ? parseFloat((r.quantity * r.abv_percent / 100).toFixed(3))
+          : (r.lals || undefined);
+
+        // CO2e
+        let co2e = r.co2e_kg;
+        if (!co2e && r.weight_kg && r.transport_distance_km) {
+          const method = r.transport_method || 'road';
+          const ef = method === 'air' ? 0.55 : method === 'sea' ? 0.008 : method === 'courier' ? 0.15 : 0.12;
+          co2e = parseFloat(((r.transport_distance_km * r.weight_kg / 1000) * ef).toFixed(3));
+        }
+
+        const payload = {
+          material_name: r.material_name,
+          material_type: matchedType,
+          quantity: r.quantity,
+          unit: VALID_UNITS.includes(r.unit) ? r.unit : 'kg',
+          abv_percent: r.abv_percent || undefined,
+          lals: lals || undefined,
+          supplier_name: r.supplier_name || undefined,
+          supplier_id: r._raw?.supplier_id || undefined,
+          transport_distance_km: r.transport_distance_km || undefined,
+          transport_method: VALID_METHODS.includes(r.transport_method) ? r.transport_method : undefined,
+          weight_kg: r.weight_kg || undefined,
+          co2e_kg: co2e || undefined,
+          cost_per_unit: r.cost_per_unit || undefined,
+          batch_number: r.batch_number || undefined,
+          date_received: r.date_received || undefined,
+          notes: r.notes || undefined,
+        };
+
+        await base44.entities.Receiving.create(payload);
+
+        // Update or create RawMaterial inventory
+        const mats = await base44.entities.RawMaterial.filter({ name: r.material_name });
+        if (mats.length > 0) {
+          const mat = mats[0];
+          await base44.entities.RawMaterial.update(mat.id, {
+            quantity: (mat.quantity || 0) + r.quantity,
+            lals: matchedType === 'Ethanol' ? (mat.lals || 0) + (lals || 0) : mat.lals,
+          });
+        } else {
+          await base44.entities.RawMaterial.create({
+            name: r.material_name,
+            type: matchedType.toLowerCase(),
+            quantity: r.quantity,
+            unit: VALID_UNITS.includes(r.unit) ? r.unit : 'kg',
+            abv_percent: r.abv_percent || undefined,
+            lals: lals || undefined,
+            supplier: r.supplier_name || undefined,
+            cost_per_unit: r.cost_per_unit || undefined,
+            batch_number: r.batch_number || undefined,
+          });
+        }
+        created++;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['receivings'] });
+      queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
+      toast.success(`Synced: ${created} imported, ${skipped} already existed`);
+    } catch (err) {
+      toast.error('Sync failed: ' + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const [backfilling, setBackfilling] = useState(false);
 
   const handleBackfillCo2e = async () => {
@@ -336,6 +437,10 @@ export default function Receiving() {
             <Upload className="w-4 h-4" />Scan Packing Slip
           </div>
         </label>
+        <Button variant="outline" onClick={handleSyncFromSheet} disabled={syncing}>
+          {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sheet className="w-4 h-4 mr-2" />}
+          {syncing ? 'Syncing…' : 'Sync from Sheet'}
+        </Button>
         <Button variant="outline" onClick={handleBackfillCo2e} disabled={backfilling}>
           {backfilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
           {backfilling ? 'Updating…' : 'Backfill CO2e'}
