@@ -222,11 +222,12 @@ export default function Warehouse() {
       origin: WAREHOUSE_ADDRESS,
       destination: customerAddress,
     });
+    // Only update if dialog is still open (showDispatch may have changed)
+    setCalcingDistance(false);
     if (res.data?.distance_km) {
       setDispatchForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
       toast.success(`Distance: ${res.data.distance_km} km (${res.data.duration_text})`);
     }
-    setCalcingDistance(false);
   };
 
   const deleteWSMutation = useMutation({
@@ -466,7 +467,7 @@ export default function Warehouse() {
       </Dialog>
 
       {/* Dispatch from Warehouse Dialog */}
-      <Dialog open={showDispatch} onOpenChange={v => { setShowDispatch(v); if (!v) { setDispatchForm(EMPTY_DISPATCH); setSelectedWSId(''); } }}>
+      <Dialog open={showDispatch} onOpenChange={v => { setShowDispatch(v); if (!v) { setDispatchForm(EMPTY_DISPATCH); setSelectedWSId(''); setCalcingDistance(false); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Dispatch from Warehouse</DialogTitle>
