@@ -33,7 +33,15 @@ export default function Reports() {
 
   const { data: wastage = [] } = useQuery({ queryKey: ['wastage'], queryFn: () => base44.entities.WastageRecord.list('-date', 500) });
   const { data: receiving = [] } = useQuery({ queryKey: ['receiving'], queryFn: () => base44.entities.Receiving.list('-date_received', 500) });
-  const { data: dispatches = [] } = useQuery({ queryKey: ['dispatches'], queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 500) });
+  const { data: sheetData = { dispatches: [] } } = useQuery({
+    queryKey: ['sheetDispatches'],
+    queryFn: async () => {
+      const res = await base44.functions.invoke('readSheetDispatches', {});
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+  const dispatches = sheetData.dispatches || [];
   const { data: rawMaterials = [] } = useQuery({ queryKey: ['rawMaterials'], queryFn: () => base44.entities.RawMaterial.list('name', 200) });
   const { data: finishedGoods = [] } = useQuery({ queryKey: ['finishedGoods'], queryFn: () => base44.entities.FinishedGood.list('product_name', 200) });
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => base44.entities.WarehouseStock.list('-date_transferred_in', 200) });
@@ -492,8 +500,8 @@ export default function Reports() {
                 <TableBody>
                   {monthDispatches.length === 0 ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No dispatches this month</TableCell></TableRow>
-                  ) : monthDispatches.map(d => (
-                    <TableRow key={d.id}>
+                  ) : monthDispatches.map((d, i) => (
+                    <TableRow key={d.id || d._row_index || i}>
                       <TableCell className="text-sm">{d.dispatch_date ? format(parseISO(d.dispatch_date), 'dd MMM') : '—'}</TableCell>
                       <TableCell className="font-medium text-sm">{d.customer_name}</TableCell>
                       <TableCell className="text-sm">{d.product_name}</TableCell>
@@ -604,8 +612,8 @@ export default function Reports() {
                          <TableBody>
                            {monthDispatches.filter(d => !d.notes?.startsWith('[3PL]')).length === 0 ? (
                              <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No dispatches</TableCell></TableRow>
-                           ) : monthDispatches.filter(d => !d.notes?.startsWith('[3PL]')).map(d => (
-                             <TableRow key={d.id}>
+                           ) : monthDispatches.filter(d => !d.notes?.startsWith('[3PL]')).map((d, i) => (
+                             <TableRow key={d.id || d._row_index || i}>
                                <TableCell className="text-sm">{d.dispatch_date ? format(parseISO(d.dispatch_date), 'dd MMM') : '—'}</TableCell>
                                <TableCell className="text-sm">{d.customer_name}</TableCell>
                                <TableCell className="text-sm capitalize">{d.transport_method || '—'}</TableCell>

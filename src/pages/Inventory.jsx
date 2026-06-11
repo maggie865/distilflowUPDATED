@@ -279,10 +279,16 @@ export default function Inventory() {
     queryFn: () => base44.entities.FinishedGood.list('product_name', 100),
   });
 
-  const { data: allDispatches = [], isLoading: loadingDispatches } = useQuery({
-    queryKey: ['allDispatches'],
-    queryFn: () => base44.entities.Dispatch.list('batch_number', 500),
+  const { data: sheetData = { dispatches: [] }, isLoading: loadingDispatches } = useQuery({
+    queryKey: ['sheetDispatches'],
+    queryFn: async () => {
+      const res = await base44.functions.invoke('readSheetDispatches', {});
+      return res.data;
+    },
+    staleTime: 60_000,
   });
+
+  const allDispatches = sheetData.dispatches || [];
 
   // Build dispatch totals per batch+product key
   const dispatchedByBatch = allDispatches.reduce((acc, d) => {

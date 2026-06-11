@@ -80,10 +80,16 @@ export default function Sales() {
     queryFn: () => base44.entities.Customer.list('business_name', 200),
   });
 
-  const { data: dispatches = [] } = useQuery({
-    queryKey: ['dispatches'],
-    queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 200),
+  const { data: sheetData = { dispatches: [] } } = useQuery({
+    queryKey: ['sheetDispatches'],
+    queryFn: async () => {
+      const res = await base44.functions.invoke('readSheetDispatches', {});
+      return res.data;
+    },
+    staleTime: 60_000,
   });
+
+  const dispatches = sheetData.dispatches || [];
 
   // Only sellable stock (not tasting bottles)
   const sellableGoods = finishedGoods.filter(fg => !fg.product_name?.includes('Tasting'));
@@ -139,20 +145,23 @@ export default function Sales() {
         : 0;
 
       const weightKg = calcWeightKg(selectedFG?.bottle_size_ml, qty);
-
       const distanceKm = parseFloat(form.transport_distance_km) || 0;
       const co2e = calcCO2e(distanceKm, weightKg, form.transport_method);
 
-      // 1. Create dispatch record
-       await base44.entities.Dispatch.create({
-         ...form,
-         quantity_bottles: qty,
-         bottle_size_ml: selectedFG?.bottle_size_ml || null,
-         transport_distance_km: distanceKm,
-         total_lals: parseFloat(lals.toFixed(4)),
-         parcel_weight_kg: weightKg,
-         co2e_kg: co2e,
-       });
+      const dispatchData = {
+        ...form,
+        quantity_bottles: qty,
+        bottle_size_ml: selectedFG?.bottle_size_ml || null,
+        transport_distance_km: distanceKm,
+        total_lals: parseFloat(lals.toFixed(4)),
+        parcel_weight_kg: weightKg,
+        co2e_kg: co2e,
+        dispatched_from: 'Bluff Distillery',
+        is_sample: 'FALSE',
+      };
+
+      // 1. Append to Google Sheet
+      await base44.functions.invoke('appendDispatchToSheet', { dispatch: dispatchData });
 
       // 2. Deduct from finished goods stock
       if (selectedFG) {
@@ -169,11 +178,11 @@ export default function Sales() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['sheetDispatches'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       setShowForm(false);
       resetForm();
-      toast.success('Dispatch recorded and stock updated');
+      toast.success('Dispatch recorded and synced to Google Sheet');
     },
   });
 
@@ -186,7 +195,7 @@ export default function Sales() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['sheetDispatches'] });
       setEditingDispatch(null);
       toast.success('Dispatch updated');
     },
@@ -218,10 +227,10 @@ export default function Sales() {
       await base44.entities.Dispatch.update(dispatch.id, { status: 'pending', notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]') });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['sheetDispatches'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       setReturningDispatch(null);
-      toast.success('Stock returned and dispatch marked as returned');
+      toast.success('Stock returned');
     },
   });
 
@@ -250,7 +259,7 @@ export default function Sales() {
       await base44.entities.Dispatch.delete(dispatch.id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['sheetDispatches'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       setDeletingDispatch(null);
       toast.success('Dispatch deleted and stock restored');
@@ -352,43 +361,45 @@ export default function Sales() {
                     No dispatches recorded yet
                   </TableCell>
                 </TableRow>
-              ) : filtered.map(d => (
-                <TableRow key={d.id}>
+              ) : filtered.map((d, i) => (
+                <TableRow key={d.id || d._row_index || i}>
                   <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), 'dd MMM yyyy') : '—'}</TableCell>
                   <TableCell className="font-semibold">{d.customer_name}</TableCell>
                   <TableCell>{d.product_name}</TableCell>
                   <TableCell className="font-mono text-xs">{d.batch_number}</TableCell>
                   <TableCell className="font-semibold">{d.quantity_bottles}</TableCell>
-                  <TableCell>{d.total_lals?.toFixed(3) || '—'}</TableCell>
+                  <TableCell>{typeof d.total_lals === 'number' ? d.total_lals.toFixed(3) : d.total_lals || '—'}</TableCell>
                   <TableCell>{d.transport_distance_km ? `${d.transport_distance_km} km` : '—'}</TableCell>
                   <TableCell>{d.parcel_weight_kg ? `${d.parcel_weight_kg} kg` : '—'}</TableCell>
                   <TableCell className="capitalize">{d.transport_method || '—'}</TableCell>
-                  <TableCell className="font-semibold text-green-600">{d.co2e_kg ? `${d.co2e_kg.toFixed(2)} kg` : '—'}</TableCell>
+                  <TableCell className="font-semibold text-green-600">{d.co2e_kg ? `${parseFloat(d.co2e_kg).toFixed(2)} kg` : '—'}</TableCell>
                   <TableCell><StatusBadge status={d.status} /></TableCell>
                   <TableCell>
-                    <div className="flex gap-1 justify-end">
-                      <Button
-                        variant="ghost" size="icon" className="h-7 w-7"
-                        title="Edit"
-                        onClick={() => { setEditingDispatch(d); setEditForm({ status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date }); }}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700"
-                        title="Return stock"
-                        onClick={() => setReturningDispatch(d)}
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                        title="Delete"
-                        onClick={() => setDeletingDispatch(d)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                    {d.id && (
+                      <div className="flex gap-1 justify-end">
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7"
+                          title="Edit"
+                          onClick={() => { setEditingDispatch(d); setEditForm({ status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date }); }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700"
+                          title="Return stock"
+                          onClick={() => setReturningDispatch(d)}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                          title="Delete"
+                          onClick={() => setDeletingDispatch(d)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

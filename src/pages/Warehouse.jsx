@@ -77,13 +77,19 @@ export default function Warehouse() {
     queryFn: () => base44.entities.Customer.list('business_name', 200),
   });
 
-  const { data: dispatches = [] } = useQuery({
-    queryKey: ['dispatches'],
-    queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 200),
+  const { data: sheetData = { dispatches: [] } } = useQuery({
+    queryKey: ['sheetDispatches'],
+    queryFn: async () => {
+      const res = await base44.functions.invoke('readSheetDispatches', {});
+      return res.data;
+    },
+    staleTime: 60_000,
   });
 
-  // Only dispatches that originated from the warehouse (flagged via notes prefix)
-  const warehouseDispatches = dispatches.filter(d => d.notes?.startsWith('[3PL]'));
+  // Only dispatches that originated from the warehouse (flagged via dispatched_from or notes prefix)
+  const warehouseDispatches = (sheetData.dispatches || []).filter(d =>
+    d.dispatched_from === 'Auckland 3PL' || d.notes?.startsWith('[3PL]')
+  );
 
   const sellableGoods = finishedGoods.filter(fg => !fg.product_name?.includes('Tasting'));
   const selectedFG = finishedGoods.find(fg => fg.id === selectedFGId);
@@ -187,17 +193,21 @@ export default function Warehouse() {
         co2e = (distance * weight / 1000) * 0.008;
       }
 
-      await base44.entities.Dispatch.create({
-        ...dispatchForm,
-        product_name: ws.product_name,
-        batch_number: ws.batch_number,
-        bottle_size_ml: ws.bottle_size_ml,
-        quantity_bottles: dispatchQty,
-        total_lals: parseFloat(lals.toFixed(4)),
-        parcel_weight_kg: weight,
-        transport_distance_km: distance,
-        co2e_kg: parseFloat(co2e.toFixed(3)),
-        notes: `[3PL] ${dispatchForm.notes}`.trim(),
+      await base44.functions.invoke('appendDispatchToSheet', {
+        dispatch: {
+          ...dispatchForm,
+          product_name: ws.product_name,
+          batch_number: ws.batch_number,
+          bottle_size_ml: ws.bottle_size_ml,
+          quantity_bottles: dispatchQty,
+          total_lals: parseFloat(lals.toFixed(4)),
+          parcel_weight_kg: weight,
+          transport_distance_km: distance,
+          co2e_kg: parseFloat(co2e.toFixed(3)),
+          dispatched_from: 'Auckland 3PL',
+          notes: `[3PL] ${dispatchForm.notes}`.trim(),
+          is_sample: 'FALSE',
+        },
       });
 
       // Deduct from WarehouseStock
@@ -214,11 +224,11 @@ export default function Warehouse() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['warehouseStock'] });
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['sheetDispatches'] });
       setShowDispatch(false);
       setDispatchForm(EMPTY_DISPATCH);
       setSelectedWSId('');
-      toast.success('Dispatch recorded and warehouse stock updated');
+      toast.success('Dispatch recorded and synced to Google Sheet');
     },
   });
 
@@ -378,15 +388,15 @@ export default function Warehouse() {
                     No warehouse dispatches recorded yet
                   </TableCell>
                 </TableRow>
-              ) : warehouseDispatches.map(d => (
-                <TableRow key={d.id}>
+              ) : warehouseDispatches.map((d, i) => (
+                <TableRow key={d.id || d._row_index || i}>
                   <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), 'dd MMM yyyy') : '—'}</TableCell>
                   <TableCell className="font-semibold">{d.customer_name}</TableCell>
                   <TableCell>{d.product_name}</TableCell>
                   <TableCell className="font-mono text-xs">{d.batch_number}</TableCell>
                   <TableCell className="font-semibold">{d.quantity_bottles}</TableCell>
                   <TableCell className="capitalize">{d.transport_method || '—'}</TableCell>
-                  <TableCell className="font-semibold text-green-600">{d.co2e_kg ? `${d.co2e_kg.toFixed(3)} kg` : '—'}</TableCell>
+                  <TableCell className="font-semibold text-green-600">{d.co2e_kg ? `${parseFloat(d.co2e_kg).toFixed(3)} kg` : '—'}</TableCell>
                   <TableCell><StatusBadge status={d.status} /></TableCell>
                 </TableRow>
               ))}
