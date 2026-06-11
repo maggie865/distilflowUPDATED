@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { db, supabase } from '@/api/supabaseClient';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,10 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, RefreshCw, Sheet } from 'lucide-react';
-
+import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -28,13 +27,47 @@ const BLANK_FORM = {
   date_received: new Date().toISOString().split('T')[0], notes: '', packing_slip_url: ''
 };
 
+// ── Packing Slip Viewer Dialog ───────────────────────────────────────────────
+function PackingSlipViewer({ url, onClose }) {
+  const isPdf = url?.toLowerCase().includes('.pdf');
+  return (
+    <Dialog open={!!url} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="font-display flex items-center gap-2">
+            <FileText className="w-4 h-4" /> Packing Slip
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-hidden rounded-lg border border-border mt-2">
+          {isPdf ? (
+            <iframe src={url} className="w-full h-[70vh]" title="Packing Slip" />
+          ) : (
+            <img src={url} alt="Packing Slip" className="w-full h-auto max-h-[70vh] object-contain" />
+          )}
+        </div>
+        <div className="flex justify-end gap-2 mt-3">
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <ExternalLink className="w-3.5 h-3.5" /> Open in new tab
+            </Button>
+          </a>
+          <Button size="sm" onClick={onClose}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Receiving() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [extracting, setExtracting] = useState(false);
+  const [uploadingSlip, setUploadingSlip] = useState(false);
   const [calcingDistance, setCalcingDistance] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+  const [viewingSlip, setViewingSlip] = useState(null);
   const queryClient = useQueryClient();
+
   const { refetch } = useQuery({
     queryKey: ['receivings'],
     queryFn: () => db.Receiving.list('-date_received', 50),
@@ -100,105 +133,124 @@ export default function Receiving() {
     }
   };
 
+  // ── Upload packing slip directly to Supabase Storage ──────────────────────
+  const uploadPackingSlip = async (file) => {
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { data, error } = await supabase.storage
+      .from('packing-slips')
+      .upload(fileName, file, { contentType: file.type, upsert: false });
+
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('packing-slips')
+      .getPublicUrl(fileName);
+
+    return publicUrl;
+  };
+
+  // ── Handle packing slip file selection ────────────────────────────────────
   const handlePackingSlip = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setExtracting(true);
+
+    setUploadingSlip(true);
     if (!open) setOpen(true);
 
     try {
-      // Upload file for storage and OCR extraction
-      const { base44 } = await import('@/api/base44Client');
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      // 1. Upload to Supabase Storage first
+      const publicUrl = await uploadPackingSlip(file);
+      setForm(prev => ({ ...prev, packing_slip_url: publicUrl }));
+      toast.success('Packing slip uploaded');
 
-      // Store the file URL immediately
-      setForm(prev => ({ ...prev, packing_slip_url: file_url }));
-
-      // Extract data from packing slip
-      const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
-        file_url,
-        json_schema: {
-          type: 'object',
-          properties: {
-            material_name: { type: 'string', description: 'Name of the material or product received' },
-            material_type: { type: 'string', description: 'Type: ethanol, botanical, grain, sugar, water, flavoring, or other' },
-            quantity: { type: 'number', description: 'Quantity received' },
-            unit: { type: 'string', description: 'Unit of measurement: litres, kg, or units' },
-            abv_percent: { type: 'number', description: 'ABV percentage if applicable' },
-            supplier: { type: 'string', description: 'Supplier or vendor name' },
-            cost_per_unit: { type: 'number', description: 'Cost per unit if listed' },
-            batch_number: { type: 'string', description: 'Lot number, batch number, or invoice number' },
-            date_received: { type: 'string', description: 'Date received in YYYY-MM-DD format' },
-            notes: { type: 'string', description: 'Any other relevant notes from the document' },
+      // 2. Try to extract data using Base44 OCR
+      setExtracting(true);
+      try {
+        const { base44 } = await import('@/api/base44Client');
+        const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
+          file_url: publicUrl,
+          json_schema: {
+            type: 'object',
+            properties: {
+              material_name: { type: 'string', description: 'Name of the material or product received' },
+              material_type: { type: 'string', description: 'Type: ethanol, botanical, grain, sugar, water, flavoring, or other' },
+              quantity: { type: 'number', description: 'Quantity received' },
+              unit: { type: 'string', description: 'Unit of measurement: litres, kg, or units' },
+              abv_percent: { type: 'number', description: 'ABV percentage if applicable' },
+              supplier: { type: 'string', description: 'Supplier or vendor name' },
+              cost_per_unit: { type: 'number', description: 'Cost per unit if listed' },
+              batch_number: { type: 'string', description: 'Lot number, batch number, or invoice number' },
+              date_received: { type: 'string', description: 'Date received in YYYY-MM-DD format' },
+              notes: { type: 'string', description: 'Any other relevant notes from the document' },
+            }
           }
+        });
+
+        if (result.status === 'success' && result.output) {
+          const d = Array.isArray(result.output) ? result.output[0] : result.output;
+          const VALID_UNITS = ['litres', 'kg', 'units'];
+
+          let matchedSupplier = null;
+          if (d.supplier && suppliersQuery.data) {
+            matchedSupplier = suppliersQuery.data.find(s =>
+              s.business_name.toLowerCase().includes(d.supplier.toLowerCase()) ||
+              d.supplier.toLowerCase().includes(s.business_name.toLowerCase())
+            );
+          }
+
+          setForm(prev => ({
+            ...prev,
+            material_name: d.material_name || prev.material_name,
+            material_type: MATERIAL_TYPES.find(t => t.toLowerCase().includes(d.material_type?.toLowerCase())) || prev.material_type,
+            quantity: d.quantity != null ? String(d.quantity) : prev.quantity,
+            unit: VALID_UNITS.includes(d.unit) ? d.unit : prev.unit,
+            abv_percent: d.abv_percent != null ? String(d.abv_percent) : prev.abv_percent,
+            supplier_id: matchedSupplier?.id || prev.supplier_id,
+            supplier_name: matchedSupplier?.business_name || d.supplier || prev.supplier_name,
+            cost_per_unit: d.cost_per_unit != null ? String(d.cost_per_unit) : prev.cost_per_unit,
+            batch_number: d.batch_number || prev.batch_number,
+            date_received: d.date_received || prev.date_received,
+            notes: d.notes || prev.notes,
+          }));
+
+          if (matchedSupplier?.address) {
+            setTimeout(() => calculateDistance(matchedSupplier.address), 500);
+          }
+
+          toast.success('Packing slip scanned — please review before saving');
         }
-      });
-
-      if (result.status === 'success' && result.output) {
-        const d = Array.isArray(result.output) ? result.output[0] : result.output;
-        const VALID_UNITS = ['litres', 'kg', 'units'];
-
-        // Auto-match supplier if extracted
-        let matchedSupplier = null;
-        if (d.supplier && suppliersQuery.data) {
-          matchedSupplier = suppliersQuery.data.find(s => 
-            s.business_name.toLowerCase().includes(d.supplier.toLowerCase()) || 
-            d.supplier.toLowerCase().includes(s.business_name.toLowerCase())
-          );
-        }
-
-        setForm(prev => ({
-          ...prev,
-          material_name: d.material_name || prev.material_name,
-          material_type: MATERIAL_TYPES.find(t => t.toLowerCase().includes(d.material_type?.toLowerCase())) || prev.material_type,
-          quantity: d.quantity != null ? String(d.quantity) : prev.quantity,
-          unit: VALID_UNITS.includes(d.unit) ? d.unit : prev.unit,
-          abv_percent: d.abv_percent != null ? String(d.abv_percent) : prev.abv_percent,
-          supplier_id: matchedSupplier?.id || prev.supplier_id,
-          supplier_name: matchedSupplier?.business_name || d.supplier || prev.supplier_name,
-          cost_per_unit: d.cost_per_unit != null ? String(d.cost_per_unit) : prev.cost_per_unit,
-          batch_number: d.batch_number || prev.batch_number,
-          date_received: d.date_received || prev.date_received,
-          notes: d.notes || prev.notes,
-        }));
-
-        // Auto-calculate distance if supplier matched
-        if (matchedSupplier?.address) {
-          setTimeout(() => calculateDistance(matchedSupplier.address), 500);
-        }
-
-        toast.success('Packing slip scanned — supplier auto-matched, please review');
-      } else {
-        toast.error('Could not extract data from the file. Please fill in manually.');
+      } catch {
+        // OCR failed silently — slip is still uploaded and saved
+        toast.info('Slip uploaded — could not auto-extract fields, please fill in manually');
+      } finally {
+        setExtracting(false);
       }
     } catch (err) {
-      toast.error('Upload failed. Please try again.');
+      toast.error('Upload failed: ' + err.message);
     } finally {
-      setExtracting(false);
+      setUploadingSlip(false);
       e.target.value = '';
     }
   };
-
-
 
   const buildPayload = (data) => {
     const lals = data.material_type === 'Ethanol' && data.abv_percent
       ? (parseFloat(data.quantity) * parseFloat(data.abv_percent) / 100)
       : undefined;
-    
-    // Calculate CO2e for inbound transport
+
     let co2e = 0;
     const weight = data.weight_kg ? parseFloat(data.weight_kg) : 0;
     const distance = data.transport_distance_km ? parseFloat(data.transport_distance_km) : 0;
     const method = data.transport_method || 'road';
-    
+
     if (weight > 0 && distance > 0) {
       if (method === 'road') co2e = (distance * weight / 1000) * 0.12;
       else if (method === 'courier') co2e = (distance * weight / 1000) * 0.15;
       else if (method === 'air') co2e = (distance * weight / 1000) * 0.55;
       else if (method === 'sea') co2e = (distance * weight / 1000) * 0.008;
     }
-    
+
     return {
       material_name: data.material_name,
       material_type: data.material_type,
@@ -225,7 +277,6 @@ export default function Receiving() {
       const payload = buildPayload(data);
       await db.Receiving.create(payload);
 
-      // Also update/create raw material inventory
       const existing = await db.RawMaterial.filter({ name: data.material_name });
       if (existing.length > 0) {
         const mat = existing[0];
@@ -285,15 +336,19 @@ export default function Receiving() {
 
   const deleteMutation = useMutation({
     mutationFn: async (record) => {
-      // Deduct stock from raw material inventory
       const existing = await db.RawMaterial.filter({ name: record.material_name });
       if (existing.length > 0) {
         const mat = existing[0];
         const newQty = Math.max(0, (mat.quantity || 0) - (record.quantity || 0));
-        const newLals = record.material_type === 'ethanol'
+        const newLals = record.material_type === 'Ethanol'
           ? Math.max(0, (mat.lals || 0) - (record.lals || 0))
           : mat.lals;
         await db.RawMaterial.update(mat.id, { quantity: newQty, lals: newLals });
+      }
+      // Delete the packing slip from storage if it exists
+      if (record.packing_slip_url) {
+        const fileName = record.packing_slip_url.split('/').pop();
+        await supabase.storage.from('packing-slips').remove([fileName]);
       }
       await db.Receiving.delete(record.id);
     },
@@ -303,123 +358,6 @@ export default function Receiving() {
       toast.success('Record deleted and inventory updated');
     },
   });
-
-  const [syncing, setSyncing] = useState(false);
-
-  const handleSyncFromSheet = async () => {
-    if (!confirm('This will import all rows from the Google Sheet as Receiving records, skipping any that already exist (matched by batch number + material name). Continue?')) return;
-    setSyncing(true);
-    try {
-      toast.info('Sheet sync removed — data now in Supabase');
-      return;
-      if (sheetRecords.length === 0) {
-        toast.error('No records found in sheet');
-        return;
-      }
-
-      // Get existing receivings to avoid duplicates
-      const existing = await db.Receiving.list('-date_received', 500);
-      const existingKeys = new Set(existing.map(r => `${r.batch_number}__${r.material_name}`));
-
-      let created = 0;
-      let skipped = 0;
-
-      for (const r of sheetRecords) {
-        const key = `${r.batch_number}__${r.material_name}`;
-        if (existingKeys.has(key)) { skipped++; continue; }
-
-        const VALID_TYPES = ['Ethanol', 'Botanicals', 'Packaging', 'Grain', 'Sugar', 'Water', 'Flavoring', 'Other'];
-        const VALID_UNITS = ['litres', 'kg', 'units'];
-        const VALID_METHODS = ['road', 'courier', 'air', 'sea'];
-
-        // Normalise type
-        const rawType = r.material_type || '';
-        const matchedType = VALID_TYPES.find(t => t.toLowerCase() === rawType.toLowerCase())
-          || VALID_TYPES.find(t => t.toLowerCase().startsWith(rawType.toLowerCase()))
-          || 'Other';
-
-        const lals = matchedType === 'Ethanol' && r.abv_percent && r.quantity
-          ? parseFloat((r.quantity * r.abv_percent / 100).toFixed(3))
-          : (r.lals || undefined);
-
-        // CO2e
-        let co2e = r.co2e_kg;
-        if (!co2e && r.weight_kg && r.transport_distance_km) {
-          const method = r.transport_method || 'road';
-          const ef = method === 'air' ? 0.55 : method === 'sea' ? 0.008 : method === 'courier' ? 0.15 : 0.12;
-          co2e = parseFloat(((r.transport_distance_km * r.weight_kg / 1000) * ef).toFixed(3));
-        }
-
-        const payload = {
-          material_name: r.material_name,
-          material_type: matchedType,
-          quantity: r.quantity,
-          unit: VALID_UNITS.includes(r.unit) ? r.unit : 'kg',
-          abv_percent: r.abv_percent || undefined,
-          lals: lals || undefined,
-          supplier_name: r.supplier_name || undefined,
-          supplier_id: r._raw?.supplier_id || undefined,
-          transport_distance_km: r.transport_distance_km || undefined,
-          transport_method: VALID_METHODS.includes(r.transport_method) ? r.transport_method : undefined,
-          weight_kg: r.weight_kg || undefined,
-          co2e_kg: co2e || undefined,
-          cost_per_unit: r.cost_per_unit || undefined,
-          batch_number: r.batch_number || undefined,
-          date_received: r.date_received || undefined,
-          notes: r.notes || undefined,
-        };
-
-        await db.Receiving.create(payload);
-
-        // Update or create RawMaterial inventory
-        const mats = await db.RawMaterial.filter({ name: r.material_name });
-        if (mats.length > 0) {
-          const mat = mats[0];
-          await db.RawMaterial.update(mat.id, {
-            quantity: (mat.quantity || 0) + r.quantity,
-            lals: matchedType === 'Ethanol' ? (mat.lals || 0) + (lals || 0) : mat.lals,
-          });
-        } else {
-          await db.RawMaterial.create({
-            name: r.material_name,
-            type: matchedType.toLowerCase(),
-            quantity: r.quantity,
-            unit: VALID_UNITS.includes(r.unit) ? r.unit : 'kg',
-            abv_percent: r.abv_percent || undefined,
-            lals: lals || undefined,
-            supplier: r.supplier_name || undefined,
-            cost_per_unit: r.cost_per_unit || undefined,
-            batch_number: r.batch_number || undefined,
-          });
-        }
-        created++;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['receivings'] });
-      queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
-      toast.success(`Synced: ${created} imported, ${skipped} already existed`);
-    } catch (err) {
-      toast.error('Sync failed: ' + err.message);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const [backfilling, setBackfilling] = useState(false);
-
-  const handleBackfillCo2e = async () => {
-    if (!confirm('This will update all receiving records with distances from supplier addresses and estimate CO2e from quantity. Continue?')) return;
-    setBackfilling(true);
-    try {
-      toast.info('Backfill function removed');
-      return;
-      queryClient.invalidateQueries({ queryKey: ['receivings'] });
-    } catch (err) {
-      toast.error('Backfill failed: ' + err.message);
-    } finally {
-      setBackfilling(false);
-    }
-  };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
   const data = receivingsQuery.data || [];
@@ -432,21 +370,15 @@ export default function Receiving() {
           <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }} />
         </div>
       )}
+
       <PageHeader title="Receiving" subtitle="Log incoming raw materials and ethanol">
         <label className="cursor-pointer">
-          <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handlePackingSlip} />
-          <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors">
-            <Upload className="w-4 h-4" />Scan Packing Slip
+          <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handlePackingSlip} disabled={uploadingSlip || extracting} />
+          <div className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors ${(uploadingSlip || extracting) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            {uploadingSlip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            {uploadingSlip ? 'Uploading…' : extracting ? 'Scanning…' : 'Scan Packing Slip'}
           </div>
         </label>
-        <Button variant="outline" onClick={handleSyncFromSheet} disabled={syncing}>
-          {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sheet className="w-4 h-4 mr-2" />}
-          {syncing ? 'Syncing…' : 'Sync from Sheet'}
-        </Button>
-        <Button variant="outline" onClick={handleBackfillCo2e} disabled={backfilling}>
-          {backfilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-          {backfilling ? 'Updating…' : 'Backfill CO2e'}
-        </Button>
         <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" />Receive Material</Button>
       </PageHeader>
 
@@ -456,35 +388,29 @@ export default function Receiving() {
             <DialogTitle className="font-display">{editingId ? 'Edit Receiving Record' : 'Receive Material'}</DialogTitle>
           </DialogHeader>
 
-          {extracting && (
+          {(uploadingSlip || extracting) && (
             <div className="flex items-center gap-3 rounded-lg bg-primary/8 border border-primary/20 px-4 py-3 mb-2">
               <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-primary">Scanning packing slip…</p>
-                <p className="text-xs text-muted-foreground">Extracting fields from your document</p>
+                <p className="text-sm font-medium text-primary">
+                  {uploadingSlip ? 'Uploading packing slip to Supabase…' : 'Scanning document…'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {uploadingSlip ? 'Your file is being saved securely' : 'Extracting fields from your document'}
+                </p>
               </div>
             </div>
           )}
 
-          {!extracting && form.material_name && (
-            <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2">
-              <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
-              <p className="text-sm text-green-700">
-                {editingId ? 'Editing record — review and save changes' : 'Fields pre-filled from packing slip — please review before saving'}
-              </p>
-            </div>
-          )}
-
-          {form.packing_slip_url && (
-            <a
-              href={form.packing_slip_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-2.5 mb-2 text-sm text-blue-700 hover:bg-blue-100 transition-colors"
+          {!uploadingSlip && !extracting && form.packing_slip_url && (
+            <div
+              className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2 cursor-pointer hover:bg-green-100 transition-colors"
+              onClick={() => setViewingSlip(form.packing_slip_url)}
             >
-              <ExternalLink className="w-4 h-4 flex-shrink-0" />
-              View packing slip
-            </a>
+              <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <p className="text-sm text-green-700 font-medium">Packing slip attached — click to preview</p>
+              <Eye className="w-4 h-4 text-green-600 ml-auto" />
+            </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4 mt-2">
@@ -563,10 +489,10 @@ export default function Receiving() {
               <div>
                 <Label>Distance (km)</Label>
                 <div className="relative">
-                  <Input 
-                    type="number" 
-                    step="0.1" 
-                    value={form.transport_distance_km} 
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={form.transport_distance_km}
                     onChange={e => set('transport_distance_km', e.target.value)}
                     placeholder={calcingDistance ? 'Calculating…' : '0'}
                     disabled={calcingDistance}
@@ -600,7 +526,7 @@ export default function Receiving() {
               <Label>Notes</Label>
               <Textarea value={form.notes} onChange={e => set('notes', e.target.value)} />
             </div>
-            <Button type="submit" className="w-full" disabled={isPending}>
+            <Button type="submit" className="w-full" disabled={isPending || uploadingSlip}>
               {isPending ? 'Saving...' : editingId ? 'Save Changes' : 'Receive Material'}
             </Button>
           </form>
@@ -626,9 +552,9 @@ export default function Receiving() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
               ) : data.length === 0 ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">No receivings yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No receivings yet</TableCell></TableRow>
               ) : data.map(r => (
                 <TableRow key={r.id}>
                   <TableCell className="text-sm">{r.date_received ? format(new Date(r.date_received), 'MMM d, yyyy') : '—'}</TableCell>
@@ -641,11 +567,14 @@ export default function Receiving() {
                   <TableCell className="text-sm font-medium">{r.lals ? r.lals.toFixed(3) : '—'}</TableCell>
                   <TableCell>
                     {r.packing_slip_url ? (
-                      <a href={r.packing_slip_url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
-                          <ExternalLink className="w-3 h-3" />View
-                        </Button>
-                      </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5"
+                        onClick={() => setViewingSlip(r.packing_slip_url)}
+                      >
+                        <Eye className="w-3 h-3" /> View
+                      </Button>
                     ) : '—'}
                   </TableCell>
                   <TableCell>
@@ -669,6 +598,9 @@ export default function Receiving() {
           </Table>
         </div>
       </Card>
+
+      {/* Packing Slip Viewer */}
+      <PackingSlipViewer url={viewingSlip} onClose={() => setViewingSlip(null)} />
     </div>
   );
 }
