@@ -279,11 +279,37 @@ export default function Inventory() {
     queryFn: () => base44.entities.FinishedGood.list('product_name', 100),
   });
 
+  const { data: allDispatches = [], isLoading: loadingDispatches } = useQuery({
+    queryKey: ['allDispatches'],
+    queryFn: () => base44.entities.Dispatch.list('batch_number', 500),
+  });
+
+  // Build dispatch totals per batch+product key
+  const dispatchedByBatch = allDispatches.reduce((acc, d) => {
+    const key = `${d.batch_number}||${d.product_name}`;
+    acc[key] = (acc[key] || 0) + (d.quantity_bottles || 0);
+    return acc;
+  }, {});
+
+  // Compute live remaining stock per FinishedGood record
+  const finishedGoodsWithStock = finishedGoods.map(g => {
+    const key = `${g.batch_number}||${g.product_name}`;
+    const dispatched = dispatchedByBatch[key] || 0;
+    const bottled = g.quantity_bottles || 0;
+    const remaining = Math.max(0, bottled - dispatched);
+    const lalsPerBottle = bottled > 0 && g.total_lals ? g.total_lals / bottled : 0;
+    return {
+      ...g,
+      quantity_bottles: remaining,
+      total_lals: parseFloat((remaining * lalsPerBottle).toFixed(3)),
+    };
+  });
+
   const packagingItems = rawMaterials.filter(m => m.type?.toLowerCase() === 'packaging');
   const nonPackagingRaw = rawMaterials.filter(m => m.type?.toLowerCase() !== 'packaging');
   const totalEthanolLALs = rawMaterials.filter(m => m.type === 'ethanol').reduce((s, m) => s + (m.lals || 0), 0);
-  const totalBottles = finishedGoods.reduce((s, g) => s + (g.quantity_bottles || 0), 0);
-  const totalFinishedLALs = finishedGoods.reduce((s, g) => s + (g.total_lals || 0), 0);
+  const totalBottles = finishedGoodsWithStock.reduce((s, g) => s + (g.quantity_bottles || 0), 0);
+  const totalFinishedLALs = finishedGoodsWithStock.reduce((s, g) => s + (g.total_lals || 0), 0);
 
   const open = (type, item, entity, queryKey) => setDialog({ type, item, entity, queryKey });
   const close = () => setDialog(null);
@@ -423,8 +449,8 @@ export default function Inventory() {
         {/* Finished Goods */}
         <TabsContent value="finished">
           <FinishedGoodsTable
-            finishedGoods={finishedGoods}
-            loading={loadingFinished}
+            finishedGoods={finishedGoodsWithStock}
+            loading={loadingFinished || loadingDispatches}
             onOpen={open}
           />
         </TabsContent>
