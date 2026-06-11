@@ -70,7 +70,7 @@ export default function Dilutions() {
 
   // Merge: sheet records first (oldest history), then entity records on top
   const entityIds = new Set(entityDilutions.map(d => d.id));
-  const sheetDilutions = (sheetData || []).filter(d => !d.id || !entityIds.has(d.id));
+  const sheetDilutions = (Array.isArray(sheetData) ? sheetData : sheetData?.dilutions || []).filter(d => !d.id || !entityIds.has(d.id));
   const dilutions = [...entityDilutions, ...sheetDilutions].sort((a, b) => {
     const da = new Date(a.date || 0), db = new Date(b.date || 0);
     return db - da;
