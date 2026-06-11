@@ -285,6 +285,11 @@ export default function Inventory() {
     queryFn: () => base44.entities.BottlingRun.list('date', 200),
   });
 
+  const { data: dilutions = [] } = useQuery({
+    queryKey: ['dilutions'],
+    queryFn: () => base44.entities.Dilution.list('date', 500),
+  });
+
   const { data: finishedGoods = [], isLoading: loadingFinished } = useQuery({
     queryKey: ['finishedGoods'],
     queryFn: () => base44.entities.FinishedGood.list('product_name', 100),
@@ -331,12 +336,20 @@ export default function Inventory() {
     };
   });
 
-  // Total ethanol (litres) consumed in all distillation runs
-  // Each run's input_lals / (abv% / 100) = litres of ethanol used at that ABV
-  // We use input_lals / 0.96 to express as equivalent 96% ethanol litres consumed
-  const totalEthanolConsumedLitres = distillationRuns
-    .filter(r => r.status === 'completed' || r.input_lals)
-    .reduce((s, r) => s + ((r.input_lals || 0) / 0.96), 0);
+  // Total litres of each ethanol type consumed across all distillation runs
+  // Use input_volume (actual litres charged to still) directly
+  const ethanolConsumedByLotCode = distillationRuns
+    .filter(r => r.input_volume)
+    .reduce((acc, r) => {
+      const lot = (r.ethanol_lot_code || '').toLowerCase();
+      acc[lot] = (acc[lot] || 0) + (r.input_volume || 0);
+      return acc;
+    }, {});
+
+  // Dilution runs that consume raw ethanol directly (non-hearts, input_abv !== 79)
+  const rawEthanolConsumedInDilutions = dilutions
+    .filter(d => d.input_abv !== 79 && d.input_ethanol_volume)
+    .reduce((s, d) => s + (d.input_ethanol_volume || 0), 0);
 
   // Total bottles produced (packaging consumed 1:1 per bottle for 700ml items)
   const totalBottlesBottled = bottlingRuns
@@ -347,9 +360,25 @@ export default function Inventory() {
   const rawMaterialsWithNetStock = rawMaterials.map(m => {
     let netQty = m.quantity || 0;
 
-    // Deduct ethanol consumed in distillation runs (expressed as 96% ethanol equivalent)
-    if (m.type === 'ethanol' && m.name?.toLowerCase().includes('lactonol')) {
-      netQty = Math.max(0, netQty - totalEthanolConsumedLitres);
+    if (m.type === 'ethanol') {
+      const nameLower = m.name?.toLowerCase() || '';
+      // Match distillation lot codes to this material
+      const isLactonol = nameLower.includes('lactonol');
+      const isEna = nameLower.includes('extra neutral') || nameLower.includes('ena');
+      let consumed = 0;
+      if (isLactonol) {
+        consumed += (ethanolConsumedByLotCode['eth-lactonol'] || 0) + (ethanolConsumedByLotCode['lactonol'] || 0);
+        consumed += rawEthanolConsumedInDilutions; // non-hearts dilutions using raw lactonol
+      } else if (isEna) {
+        consumed += (ethanolConsumedByLotCode['eth-ena'] || 0) + (ethanolConsumedByLotCode['ena'] || 0);
+      } else {
+        // Fall back: sum all lot codes not matched above
+        const matched = ['eth-lactonol', 'lactonol', 'eth-ena', 'ena'];
+        consumed += Object.entries(ethanolConsumedByLotCode)
+          .filter(([k]) => !matched.includes(k))
+          .reduce((s, [, v]) => s + v, 0);
+      }
+      netQty = Math.max(0, netQty - consumed);
     }
 
     // Deduct packaging consumed in bottling runs (1 unit per 700ml bottle)

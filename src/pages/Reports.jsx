@@ -55,6 +55,7 @@ export default function Reports() {
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => base44.entities.WarehouseStock.list('-date_transferred_in', 200) });
   const { data: distillationRuns = [] } = useQuery({ queryKey: ['distillationRuns'], queryFn: () => base44.entities.DistillationRun.list('-date', 500) });
   const { data: bottlingRuns = [] } = useQuery({ queryKey: ['bottlingRuns'], queryFn: () => base44.entities.BottlingRun.list('-date', 200) });
+  const { data: dilutions = [] } = useQuery({ queryKey: ['dilutions'], queryFn: () => base44.entities.Dilution.list('-date', 500) });
   const { data: tankMovements = [] } = useQuery({ queryKey: ['tankMovements'], queryFn: () => base44.entities.TankMovement.list('-date', 500) });
 
   // Date range
@@ -75,16 +76,38 @@ export default function Reports() {
   const monthTankMovements = tankMovements.filter(tm => inRange(tm.date) && tm.counterpart_tank === 'Auckland 3PL');
 
   // Net raw material stock — deduct ethanol consumed in distillation & packaging consumed in bottling
-  const totalEthanolConsumedLitres = distillationRuns
-    .filter(r => r.input_lals)
-    .reduce((s, r) => s + ((r.input_lals || 0) / 0.96), 0);
+  const ethanolConsumedByLotCode = distillationRuns
+    .filter(r => r.input_volume)
+    .reduce((acc, r) => {
+      const lot = (r.ethanol_lot_code || '').toLowerCase();
+      acc[lot] = (acc[lot] || 0) + (r.input_volume || 0);
+      return acc;
+    }, {});
+  const rawEthanolConsumedInDilutions = dilutions
+    .filter(d => d.input_abv !== 79 && d.input_ethanol_volume)
+    .reduce((s, d) => s + (d.input_ethanol_volume || 0), 0);
   const totalBottlesBottled700 = bottlingRuns
     .filter(r => r.bottle_size_ml === 700)
     .reduce((s, r) => s + (r.bottles_produced || 0), 0);
   const rawMaterialsNetStock = rawMaterials.map(m => {
     let netQty = m.quantity || 0;
-    if (m.type === 'ethanol' && m.name?.toLowerCase().includes('lactonol')) {
-      netQty = Math.max(0, netQty - totalEthanolConsumedLitres);
+    if (m.type === 'ethanol') {
+      const nameLower = m.name?.toLowerCase() || '';
+      const isLactonol = nameLower.includes('lactonol');
+      const isEna = nameLower.includes('extra neutral') || nameLower.includes('ena');
+      let consumed = 0;
+      if (isLactonol) {
+        consumed += (ethanolConsumedByLotCode['eth-lactonol'] || 0) + (ethanolConsumedByLotCode['lactonol'] || 0);
+        consumed += rawEthanolConsumedInDilutions;
+      } else if (isEna) {
+        consumed += (ethanolConsumedByLotCode['eth-ena'] || 0) + (ethanolConsumedByLotCode['ena'] || 0);
+      } else {
+        const matched = ['eth-lactonol', 'lactonol', 'eth-ena', 'ena'];
+        consumed += Object.entries(ethanolConsumedByLotCode)
+          .filter(([k]) => !matched.includes(k))
+          .reduce((s, [, v]) => s + v, 0);
+      }
+      netQty = Math.max(0, netQty - consumed);
     }
     if (m.type === 'packaging') {
       const name = m.name?.toLowerCase() || '';
