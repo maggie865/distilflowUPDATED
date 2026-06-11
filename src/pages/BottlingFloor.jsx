@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,22 +38,22 @@ export default function BottlingFloor() {
 
   const { data: masterBatches = [] } = useQuery({
     queryKey: ['masterBatches'],
-    queryFn: () => base44.entities.MasterBatch.list('-date_started', 100),
+    queryFn: () => db.MasterBatch.list('-date_started', 100),
   });
 
   const { data: tanks = [] } = useQuery({
     queryKey: ['storageTanks'],
-    queryFn: () => base44.entities.StorageTank.list(),
+    queryFn: () => db.StorageTank.list(),
   });
 
   const { data: recipes = [] } = useQuery({
     queryKey: ['recipes'],
-    queryFn: () => base44.entities.Recipe.list('name', 100),
+    queryFn: () => db.Recipe.list('name', 100),
   });
 
   const { data: bottlingRuns = [] } = useQuery({
     queryKey: ['bottlingFloorRuns'],
-    queryFn: () => base44.entities.BottlingRun.list('-date', 100),
+    queryFn: () => db.BottlingRun.list('-date', 100),
   });
 
   // Only tanks that are final_product_storage and in_use (ready to bottle from)
@@ -147,7 +147,7 @@ export default function BottlingFloor() {
       const lalPerBottle = totalBottles > 0 ? lals / totalBottles : 0;
 
       // 1. Create BottlingRun record
-      await base44.entities.BottlingRun.create({
+      await db.BottlingRun.create({
         batch_number: activeRun.batch_code,
         product_name: activeRun.product_name,
         date: new Date().toISOString().split('T')[0],
@@ -165,9 +165,9 @@ export default function BottlingFloor() {
       const tank = tanks.find(t => t.id === activeRun.tank_id);
       if (tank) {
         const newVolume = Math.max(0, (tank.current_volume || 0) - spiritUsedLitres);
-        await base44.entities.StorageTank.update(tank.id, { current_volume: newVolume });
+        await db.StorageTank.update(tank.id, { current_volume: newVolume });
 
-        await base44.entities.TankMovement.create({
+        await db.TankMovement.create({
           date: new Date().toISOString().split('T')[0],
           action: 'bottling_draw',
           tank_name: tank.name,
@@ -183,18 +183,18 @@ export default function BottlingFloor() {
 
       // 3. Update main finished goods stock (cases + extra bottles)
       if (totalBottles > 0) {
-        const existing = await base44.entities.FinishedGood.filter({
+        const existing = await db.FinishedGood.filter({
           product_name: activeRun.product_name,
           batch_number: activeRun.batch_code,
         });
         if (existing.length > 0) {
           const fg = existing[0];
-          await base44.entities.FinishedGood.update(fg.id, {
+          await db.FinishedGood.update(fg.id, {
             quantity_bottles: (fg.quantity_bottles || 0) + totalBottles,
             total_lals: (fg.total_lals || 0) + parseFloat(lals.toFixed(4)),
           });
         } else {
-          await base44.entities.FinishedGood.create({
+          await db.FinishedGood.create({
             product_name: activeRun.product_name,
             batch_number: activeRun.batch_code,
             bottle_size_ml: activeRun.bottle_size_ml,
@@ -209,15 +209,15 @@ export default function BottlingFloor() {
       if (tastingBottles > 0) {
         const tastingName = `${activeRun.product_name} — Tasting`;
         const tastingLals = (tastingBottles * activeRun.bottle_size_ml / 1000) * abv / 100;
-        const existingTasting = await base44.entities.FinishedGood.filter({ product_name: tastingName });
+        const existingTasting = await db.FinishedGood.filter({ product_name: tastingName });
         if (existingTasting.length > 0) {
           const tg = existingTasting[0];
-          await base44.entities.FinishedGood.update(tg.id, {
+          await db.FinishedGood.update(tg.id, {
             quantity_bottles: (tg.quantity_bottles || 0) + tastingBottles,
             total_lals: (tg.total_lals || 0) + parseFloat(tastingLals.toFixed(4)),
           });
         } else {
-          await base44.entities.FinishedGood.create({
+          await db.FinishedGood.create({
             product_name: tastingName,
             batch_number: activeRun.batch_code,
             bottle_size_ml: activeRun.bottle_size_ml,
@@ -242,7 +242,7 @@ export default function BottlingFloor() {
   // Edit run — updates only safe metadata fields (date, notes, status)
   const editRunMutation = useMutation({
     mutationFn: async (data) => {
-      await base44.entities.BottlingRun.update(editingRun.id, {
+      await db.BottlingRun.update(editingRun.id, {
         date: data.date,
         notes: data.notes,
         status: data.status,
@@ -258,7 +258,7 @@ export default function BottlingFloor() {
   // Approve batch for bottling
   const approveBatchMutation = useMutation({
     mutationFn: async (batch) => {
-      await base44.entities.MasterBatch.update(batch.id, { status: 'bottle_ready' });
+      await db.MasterBatch.update(batch.id, { status: 'bottle_ready' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['masterBatches'] });
@@ -280,11 +280,11 @@ export default function BottlingFloor() {
         t.current_batch === run.batch_number || t.current_product === run.product_name
       );
       if (matchingTank) {
-        await base44.entities.StorageTank.update(matchingTank.id, {
+        await db.StorageTank.update(matchingTank.id, {
           current_volume: (matchingTank.current_volume || 0) + spiritVolume,
         });
         // Log the reversal as a tank movement
-        await base44.entities.TankMovement.create({
+        await db.TankMovement.create({
           date: new Date().toISOString().split('T')[0],
           action: 'transfer_in',
           tank_name: matchingTank.name,
@@ -299,7 +299,7 @@ export default function BottlingFloor() {
 
       // 2. Deduct from finished goods
       if (bottlesProduced > 0) {
-        const existingFG = await base44.entities.FinishedGood.filter({
+        const existingFG = await db.FinishedGood.filter({
           product_name: run.product_name,
           batch_number: run.batch_number,
         });
@@ -308,9 +308,9 @@ export default function BottlingFloor() {
           const newQty = Math.max(0, (fg.quantity_bottles || 0) - bottlesProduced);
           const newLals = Math.max(0, (fg.total_lals || 0) - lals);
           if (newQty === 0) {
-            await base44.entities.FinishedGood.delete(fg.id);
+            await db.FinishedGood.delete(fg.id);
           } else {
-            await base44.entities.FinishedGood.update(fg.id, {
+            await db.FinishedGood.update(fg.id, {
               quantity_bottles: newQty,
               total_lals: parseFloat(newLals.toFixed(4)),
             });
@@ -323,16 +323,16 @@ export default function BottlingFloor() {
       const tastingCount = tastingMatch ? parseInt(tastingMatch[1]) : 0;
       if (tastingCount > 0) {
         const tastingName = `${run.product_name} — Tasting`;
-        const existingTasting = await base44.entities.FinishedGood.filter({ product_name: tastingName });
+        const existingTasting = await db.FinishedGood.filter({ product_name: tastingName });
         if (existingTasting.length > 0) {
           const tg = existingTasting[0];
           const tastingLals = (tastingCount * (run.bottle_size_ml || 700) / 1000) * abv / 100;
           const newQty = Math.max(0, (tg.quantity_bottles || 0) - tastingCount);
           const newLals = Math.max(0, (tg.total_lals || 0) - tastingLals);
           if (newQty === 0) {
-            await base44.entities.FinishedGood.delete(tg.id);
+            await db.FinishedGood.delete(tg.id);
           } else {
-            await base44.entities.FinishedGood.update(tg.id, {
+            await db.FinishedGood.update(tg.id, {
               quantity_bottles: newQty,
               total_lals: parseFloat(newLals.toFixed(4)),
             });
@@ -341,7 +341,7 @@ export default function BottlingFloor() {
       }
 
       // 4. Delete the run record
-      await base44.entities.BottlingRun.delete(run.id);
+      await db.BottlingRun.delete(run.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bottlingFloorRuns'] });
