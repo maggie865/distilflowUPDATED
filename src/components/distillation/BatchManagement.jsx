@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +53,7 @@ function EditBatchDialog({ batch, open, onOpenChange }) {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const mutation = useMutation({
-    mutationFn: (data) => base44.entities.MasterBatch.update(batch.id, {
+    mutationFn: (data) => db.MasterBatch.update(batch.id, {
       ...data,
       target_volume: data.target_volume !== '' ? parseFloat(data.target_volume) : undefined,
       target_abv: data.target_abv !== '' ? parseFloat(data.target_abv) : undefined,
@@ -259,12 +259,12 @@ export default function BatchManagement() {
 
   const { data: masterBatches = [], isLoading } = useQuery({
     queryKey: ['masterBatches'],
-    queryFn: () => base44.entities.MasterBatch.list('-date_started', 200),
+    queryFn: () => db.MasterBatch.list('-date_started', 200),
   });
 
   const { data: runs = [] } = useQuery({
     queryKey: ['distillationRuns'],
-    queryFn: () => base44.entities.DistillationRun.list('-date', 200),
+    queryFn: () => db.DistillationRun.list('-date', 200),
   });
 
   const filtered = statusFilter === 'all'
