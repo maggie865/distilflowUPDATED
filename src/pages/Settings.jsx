@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,17 +38,17 @@ export default function Settings() {
 
   const { data: tanks = [], isLoading: loadingTanks } = useQuery({
     queryKey: ['storageTanks'],
-    queryFn: () => base44.entities.StorageTank.list('name', 100),
+    queryFn: () => db.StorageTank.list('name', 100),
   });
 
   const { data: recipes = [], isLoading: loadingRecipes } = useQuery({
     queryKey: ['recipes'],
-    queryFn: () => base44.entities.Recipe.list('name', 50),
+    queryFn: () => db.Recipe.list('name', 50),
   });
 
   const { data: rawMaterials = [] } = useQuery({
     queryKey: ['rawMaterials'],
-    queryFn: () => base44.entities.RawMaterial.list('name', 500),
+    queryFn: () => db.RawMaterial.list('name', 500),
   });
 
   const stockIngredients = [...new Map(
@@ -58,7 +58,7 @@ export default function Settings() {
   ).values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const addTankMutation = useMutation({
-    mutationFn: (data) => base44.entities.StorageTank.create({
+    mutationFn: (data) => db.StorageTank.create({
       ...data,
       capacity_litres: parseFloat(data.capacity_litres),
     }),
@@ -70,7 +70,7 @@ export default function Settings() {
   });
 
   const deleteTankMutation = useMutation({
-    mutationFn: (id) => base44.entities.StorageTank.delete(id),
+    mutationFn: (id) => db.StorageTank.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
       toast.success('Tank deleted');
@@ -91,7 +91,7 @@ export default function Settings() {
           .filter(p => p.name.trim())
           .map(p => ({ ...p, quantity: parseFloat(p.quantity) || 0 })),
       };
-      return base44.entities.Recipe.create(payload);
+      return db.Recipe.create(payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
@@ -101,7 +101,7 @@ export default function Settings() {
   });
 
   const deleteRecipeMutation = useMutation({
-    mutationFn: (id) => base44.entities.Recipe.delete(id),
+    mutationFn: (id) => db.Recipe.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       toast.success('Recipe deleted');
