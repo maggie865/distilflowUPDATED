@@ -1,207 +1,418 @@
-import { Link, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  PackagePlus,
-  Droplets,
-  Flame,
-  Wine,
-  Warehouse,
-  Package,
-  GitBranch,
-  Cylinder,
-  FlaskConical,
-  TrendingUp,
-  Users,
-  Building2,
-  BarChart2,
-  ChevronLeft,
-  ChevronRight,
-  LogOut,
-  Trash2,
-  Truck,
-  Settings as SettingsIcon } from
-'lucide-react';
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
-import { useAuth } from '@/lib/AuthContext';
-import { ChevronDown } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { db } from '@/api/supabaseClient';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Plus, ClipboardCheck, CheckCircle2, Pencil, Trash2, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import PageHeader from '@/components/shared/PageHeader';
 
-const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { 
-      label: 'Production',
-    icon: Flame,
-    children: [
-      { label: 'Dilutions', icon: Droplets, path: '/dilutions' },
-      { label: 'Distillation', icon: Flame, path: '/distillation' },
-      { label: 'SNS Distillation', icon: Flame, path: '/sns-distillation' },
-    { label: 'Tanks', icon: Cylinder, path: '/tanks' },
-    { label: 'Recipes', icon: FlaskConical, path: '/recipes' }
-  ]
-},
-{ label: 'Bottling Floor', icon: Wine, path: '/bottling-floor' },
-{
-  label: 'Planning',
-  icon: GitBranch,
-  children: [
-    { label: 'Batch Tracker', icon: GitBranch, path: '/batch-tracker' },
-    { label: 'Raw Materials', icon: Package, path: '/raw-materials' },
-    { label: 'Inventory', icon: Warehouse, path: '/inventory' }
-  ]
-},
-{
-  label: 'Inwards/Outwards',
-  icon: TrendingUp,
-  children: [
-    { label: 'Receiving', icon: PackagePlus, path: '/receiving' },
-    { label: 'Suppliers', icon: Truck, path: '/suppliers' },
-    { label: 'Sales & Dispatch', icon: TrendingUp, path: '/sales' },
-    { label: '3PL Warehouse', icon: Building2, path: '/warehouse' },
-    { label: 'Customers', icon: Users, path: '/customers' }
-  ]
-},
-{ label: 'Reports', icon: BarChart2, path: '/reports' },
-{ label: 'Settings', icon: SettingsIcon, path: '/settings' }
-];
+export default function StockTakes() {
+  const [newOpen, setNewOpen] = useState(false);
+  const [conductedBy, setConductedBy] = useState('');
+  const [notes, setNotes] = useState('');
+  const [activeStockTake, setActiveStockTake] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const queryClient = useQueryClient();
 
+  const { data: stockTakes = [], isLoading } = useQuery({
+    queryKey: ['stockTakes'],
+    queryFn: () => db.StockTake.list('-date', 50),
+  });
 
-export default function Sidebar() {
-  const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState({});
-  const { logout } = useAuth();
+  const { data: allLines = [] } = useQuery({
+    queryKey: ['stockTakeLines'],
+    queryFn: () => db.StockTakeLine.list('material_name', 1000),
+  });
 
-  const toggleGroup = (label) => {
-    setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
+  const { data: rawMaterials = [] } = useQuery({
+    queryKey: ['rawMaterials'],
+    queryFn: () => db.RawMaterial.list('name', 500),
+  });
+
+  // Create a new stock take and pre-populate lines from current inventory
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const stockTake = await db.StockTake.create({
+        date: new Date().toISOString().split('T')[0],
+        conducted_by: conductedBy || undefined,
+        status: 'draft',
+        notes: notes || undefined,
+      });
+
+      // Pre-populate lines from all current raw materials
+      for (const mat of rawMaterials) {
+        await db.StockTakeLine.create({
+          stock_take_id: stockTake.id,
+          raw_material_id: mat.id,
+          material_name: mat.name,
+          unit: mat.unit,
+          system_quantity: mat.quantity || 0,
+          counted_quantity: null,
+        });
+      }
+
+      return stockTake;
+    },
+    onSuccess: (stockTake) => {
+      queryClient.invalidateQueries({ queryKey: ['stockTakes'] });
+      queryClient.invalidateQueries({ queryKey: ['stockTakeLines'] });
+      setNewOpen(false);
+      setConductedBy('');
+      setNotes('');
+      setActiveStockTake(stockTake.id);
+      toast.success('Stock take created — enter your counted quantities');
+    },
+  });
+
+  // Update a single line's counted quantity
+  const updateLineMutation = useMutation({
+    mutationFn: ({ lineId, counted }) =>
+      db.StockTakeLine.update(lineId, { counted_quantity: counted !== '' ? parseFloat(counted) : null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stockTakeLines'] });
+    },
+  });
+
+  // Complete the stock take
+  const completeMutation = useMutation({
+    mutationFn: (id) => db.StockTake.update(id, { status: 'completed' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stockTakes'] });
+      setActiveStockTake(null);
+      toast.success('Stock take completed and saved');
+    },
+  });
+
+  // Apply variances — update raw material quantities to match counted values
+  const applyVariancesMutation = useMutation({
+    mutationFn: async (stockTakeId) => {
+      const lines = allLines.filter(l => l.stock_take_id === stockTakeId && l.counted_quantity != null);
+      for (const line of lines) {
+        if (line.raw_material_id) {
+          const mat = rawMaterials.find(m => m.id === line.raw_material_id);
+          const update = { quantity: line.counted_quantity };
+          if (mat?.abv_percent && mat?.type === 'ethanol') {
+            update.lals = parseFloat((line.counted_quantity * mat.abv_percent / 100).toFixed(3));
+          }
+          await db.RawMaterial.update(line.raw_material_id, update);
+        }
+      }
+      await db.StockTake.update(stockTakeId, { status: 'completed' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stockTakes'] });
+      queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
+      setActiveStockTake(null);
+      toast.success('Variances applied — inventory updated to counted quantities');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => db.StockTake.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stockTakes'] });
+      queryClient.invalidateQueries({ queryKey: ['stockTakeLines'] });
+      setDeletingId(null);
+      toast.success('Stock take deleted');
+    },
+  });
+
+  const getLinesForTake = (id) => allLines.filter(l => l.stock_take_id === id);
+
+  const getVarianceSummary = (lines) => {
+    const counted = lines.filter(l => l.counted_quantity != null);
+    const withVariance = counted.filter(l => Math.abs(l.variance || 0) > 0.001);
+    const totalVariance = counted.reduce((s, l) => s + (l.variance || 0), 0);
+    return { counted: counted.length, total: lines.length, withVariance: withVariance.length, totalVariance };
   };
 
-  const isPathActive = (path) => location.pathname === path;
-  
-  const isGroupActive = (children) => {
-    return children.some(child => isPathActive(child.path));
+  const VarianceIcon = ({ variance }) => {
+    if (variance == null) return <Minus className="w-3.5 h-3.5 text-muted-foreground" />;
+    if (Math.abs(variance) < 0.001) return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+    if (variance > 0) return <TrendingUp className="w-3.5 h-3.5 text-blue-500" />;
+    return <TrendingDown className="w-3.5 h-3.5 text-destructive" />;
+  };
+
+  const varianceColor = (variance) => {
+    if (variance == null || Math.abs(variance) < 0.001) return '';
+    if (variance > 0) return 'text-blue-600 font-semibold';
+    return 'text-destructive font-semibold';
   };
 
   return (
-    <aside className={cn(
-      "fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border z-50 transition-all duration-300 flex flex-col",
-      collapsed ? "w-[68px]" : "w-[240px]"
-    )}>
-      {/* Logo */}
-      <div className="p-5 border-b border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-sidebar-primary flex items-center justify-center flex-shrink-0">
-            <Flame className="w-5 h-5 text-sidebar-primary-foreground" />
-          </div>
-          {!collapsed &&
-          <div>
-              <h1 className="font-display text-lg font-semibold tracking-tight text-sidebar-foreground">Distillery</h1>
-              <p className="text-[11px] text-sidebar-foreground/50 -mt-0.5">Operations</p>
-            </div>
-          }
-        </div>
-      </div>
+    <div className="pb-20 md:pb-0">
+      <PageHeader title="Stock Takes" subtitle="Record physical counts and reconcile against system stock">
+        <Button onClick={() => setNewOpen(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> New Stock Take
+        </Button>
+      </PageHeader>
 
-      {/* Navigation */}
-      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          if (item.children) {
-            const isExpanded = expandedGroups[item.label];
-            const hasActiveChild = isGroupActive(item.children);
-            return (
-              <div key={item.label}>
-                <button
-                  onClick={() => !collapsed && toggleGroup(item.label)}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                    hasActiveChild || isExpanded ?
-                    "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm" :
-                    "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                  )}>
-                  <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 text-left">{item.label}</span>
-                      <ChevronDown className={cn(
-                        "w-4 h-4 transition-transform",
-                        isExpanded ? "rotate-180" : ""
-                      )} />
-                    </>
-                  )}
-                </button>
-                {isExpanded && !collapsed && (
-                  <div className="pl-6 space-y-1 mt-1">
-                    {item.children.map(child => {
-                      const isActive = isPathActive(child.path);
-                      return (
-                        <Link
-                          key={child.path}
-                          to={child.path}
-                          className={cn(
-                            "flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200",
-                            isActive ?
-                            "bg-sidebar-primary/80 text-sidebar-primary-foreground" :
-                            "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                          )}>
-                          <child.icon className="w-[16px] h-[16px] flex-shrink-0" />
-                          <span>{child.label}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
+      {/* Active stock take entry */}
+      {activeStockTake && (() => {
+        const lines = getLinesForTake(activeStockTake);
+        const summary = getVarianceSummary(lines);
+        return (
+          <Card className="mb-6 border-primary/30 overflow-hidden">
+            <div className="bg-primary/5 border-b border-primary/20 px-5 py-4 flex items-center gap-3">
+              <ClipboardCheck className="w-5 h-5 text-primary" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-primary">Stock take in progress</p>
+                <p className="text-xs text-muted-foreground">{summary.counted} of {summary.total} items counted · {summary.withVariance} variance{summary.withVariance !== 1 ? 's' : ''} found</p>
               </div>
-            );
-          }
-          const isActive = isPathActive(item.path);
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setActiveStockTake(null)}>Hide</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                  disabled={applyVariancesMutation.isPending}
+                  onClick={() => {
+                    if (confirm('This will update all inventory quantities to match your counted values. Continue?')) {
+                      applyVariancesMutation.mutate(activeStockTake);
+                    }
+                  }}
+                >
+                  {applyVariancesMutation.isPending ? 'Applying…' : 'Apply & Update Inventory'}
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={completeMutation.isPending}
+                  onClick={() => completeMutation.mutate(activeStockTake)}
+                >
+                  {completeMutation.isPending ? 'Saving…' : 'Complete (no changes)'}
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Material</TableHead>
+                    <TableHead>Unit</TableHead>
+                    <TableHead>System qty</TableHead>
+                    <TableHead>Counted qty</TableHead>
+                    <TableHead>Variance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map(line => (
+                    <TableRow key={line.id} className={line.variance != null && Math.abs(line.variance) > 0.001 ? 'bg-amber-50/50' : ''}>
+                      <TableCell className="font-medium text-sm">{line.material_name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{line.unit}</TableCell>
+                      <TableCell className="text-sm">{line.system_quantity?.toFixed(3) ?? '—'}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          placeholder="Enter count…"
+                          defaultValue={line.counted_quantity ?? ''}
+                          className="h-8 w-32 text-sm"
+                          onBlur={e => {
+                            const val = e.target.value;
+                            if (val !== String(line.counted_quantity ?? '')) {
+                              updateLineMutation.mutate({ lineId: line.id, counted: val });
+                            }
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <VarianceIcon variance={line.variance} />
+                          {line.counted_quantity != null && (
+                            <span className={`text-sm ${varianceColor(line.variance)}`}>
+                              {line.variance > 0 ? '+' : ''}{line.variance?.toFixed(3) ?? '—'}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* History */}
+      <div className="space-y-3">
+        {isLoading ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Loading…</div>
+        ) : stockTakes.length === 0 ? (
+          <Card className="p-10 text-center">
+            <ClipboardCheck className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-30" />
+            <p className="font-medium text-muted-foreground">No stock takes yet</p>
+            <p className="text-sm text-muted-foreground mt-1">Create your first stock take to start reconciling inventory</p>
+          </Card>
+        ) : stockTakes.map(st => {
+          const lines = getLinesForTake(st.id);
+          const summary = getVarianceSummary(lines);
+          const isExpanded = expandedId === st.id;
+          const isActive = activeStockTake === st.id;
+
           return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                isActive ?
-                "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm" :
-                "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-              )}>
-              <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
+            <Card key={st.id} className="overflow-hidden">
+              <button
+                className="w-full flex items-center gap-4 p-4 hover:bg-muted/40 transition-colors text-left"
+                onClick={() => setExpandedId(isExpanded ? null : st.id)}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{format(new Date(st.date), 'MMM d, yyyy')}</span>
+                    <Badge variant="secondary" className={st.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}>
+                      {st.status === 'completed' ? 'Completed' : 'Draft'}
+                    </Badge>
+                    {st.conducted_by && <span className="text-xs text-muted-foreground">by {st.conducted_by}</span>}
+                  </div>
+                  <div className="flex items-center gap-4 mt-1">
+                    <span className="text-xs text-muted-foreground">{summary.counted}/{summary.total} items counted</span>
+                    {summary.withVariance > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-amber-600">
+                        <AlertTriangle className="w-3 h-3" /> {summary.withVariance} variance{summary.withVariance !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {st.status === 'draft' && !isActive && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-7"
+                      onClick={e => { e.stopPropagation(); setActiveStockTake(st.id); }}
+                    >
+                      Continue
+                    </Button>
+                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-destructive hover:text-destructive"
+                    onClick={e => { e.stopPropagation(); setDeletingId(st.id); }}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                  {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                </div>
+              </button>
+
+              {isExpanded && lines.length > 0 && (
+                <div className="border-t border-border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Material</TableHead>
+                        <TableHead>Unit</TableHead>
+                        <TableHead>System qty</TableHead>
+                        <TableHead>Counted qty</TableHead>
+                        <TableHead>Variance</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lines.map(line => (
+                        <TableRow key={line.id} className={line.variance != null && Math.abs(line.variance) > 0.001 ? 'bg-amber-50/30' : ''}>
+                          <TableCell className="text-sm font-medium">{line.material_name}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{line.unit}</TableCell>
+                          <TableCell className="text-sm">{line.system_quantity?.toFixed(3) ?? '—'}</TableCell>
+                          <TableCell className="text-sm">{line.counted_quantity?.toFixed(3) ?? '—'}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              <VarianceIcon variance={line.variance} />
+                              <span className={`text-sm ${varianceColor(line.variance)}`}>
+                                {line.counted_quantity != null
+                                  ? `${line.variance > 0 ? '+' : ''}${line.variance?.toFixed(3)}`
+                                  : '—'}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{line.notes || '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </Card>
           );
         })}
-      </nav>
-
-      {/* Footer with user actions */}
-      <div className="border-t border-sidebar-border p-3 space-y-2">
-        <Link
-          to="/settings"
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-200">
-          <SettingsIcon className="w-[18px] h-[18px] flex-shrink-0" />
-          {!collapsed && <span>Settings</span>}
-        </Link>
-        <button
-          onClick={() => logout()}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-200">
-          <LogOut className="w-[18px] h-[18px] flex-shrink-0" />
-          {!collapsed && <span>Logout</span>}
-        </button>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center p-3 text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors">
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
       </div>
 
+      {/* New Stock Take Dialog */}
+      <Dialog open={newOpen} onOpenChange={v => { setNewOpen(v); if (!v) { setConductedBy(''); setNotes(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4" /> New Stock Take
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <p className="text-sm text-muted-foreground">
+              This will create a stock take pre-filled with all <strong>{rawMaterials.length} raw materials</strong> at their current system quantities. Enter your physical counts to find variances.
+            </p>
+            <div>
+              <Label>Conducted by</Label>
+              <Input
+                value={conductedBy}
+                onChange={e => setConductedBy(e.target.value)}
+                placeholder="Your name (optional)"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Input
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="e.g. Monthly audit (optional)"
+                className="mt-1"
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || rawMaterials.length === 0}
+            >
+              {createMutation.isPending ? 'Creating…' : 'Start Stock Take'}
+            </Button>
+            {rawMaterials.length === 0 && (
+              <p className="text-xs text-destructive text-center">No raw materials in inventory yet</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-    </aside>);
-
+      {/* Delete Confirm */}
+      <AlertDialog open={!!deletingId} onOpenChange={v => !v && setDeletingId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete stock take?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the stock take and all its counted lines. Inventory quantities will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate(deletingId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
 }
