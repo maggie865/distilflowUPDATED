@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin } from 'lucide-react';
+import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, RefreshCw } from 'lucide-react';
 
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -302,6 +302,22 @@ export default function Receiving() {
     },
   });
 
+  const [backfilling, setBackfilling] = useState(false);
+
+  const handleBackfillCo2e = async () => {
+    if (!confirm('This will update all receiving records with distances from supplier addresses and estimate CO2e from quantity. Continue?')) return;
+    setBackfilling(true);
+    try {
+      const res = await base44.functions.invoke('backfillReceivingCo2e', {});
+      toast.success(`Updated ${res.data.updated} records (${res.data.skipped} skipped — no supplier/address match)`);
+      queryClient.invalidateQueries({ queryKey: ['receivings'] });
+    } catch (err) {
+      toast.error('Backfill failed: ' + err.message);
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const isPending = createMutation.isPending || updateMutation.isPending;
   const data = receivingsQuery.data || [];
   const isLoading = receivingsQuery.isLoading;
@@ -320,6 +336,10 @@ export default function Receiving() {
             <Upload className="w-4 h-4" />Scan Packing Slip
           </div>
         </label>
+        <Button variant="outline" onClick={handleBackfillCo2e} disabled={backfilling}>
+          {backfilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+          {backfilling ? 'Updating…' : 'Backfill CO2e'}
+        </Button>
         <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" />Receive Material</Button>
       </PageHeader>
 
