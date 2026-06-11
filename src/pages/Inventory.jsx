@@ -1,7 +1,7 @@
 import { useState } from 'react';
 // Net stock is computed dynamically from production records — no static deductions needed
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -53,7 +53,7 @@ function AdjustDialog({ item, entity, onClose, queryKey }) {
         update.total_lals = parseFloat((newQty * item.bottle_size_ml * item.abv_percent / 100 / 1000).toFixed(3));
       }
 
-      return base44.entities[entity].update(item.id, update);
+      return db[entity].update(item.id, update);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: [queryKey] }); onClose(); },
   });
@@ -102,7 +102,7 @@ function EditDialog({ item, entity, fields, onClose, queryKey }) {
   const [form, setForm] = useState({ ...item });
 
   const mutation = useMutation({
-    mutationFn: () => base44.entities[entity].update(item.id, form),
+    mutationFn: () => db[entity].update(item.id, form),
     onSuccess: () => { qc.invalidateQueries({ queryKey: [queryKey] }); onClose(); },
   });
 
@@ -148,7 +148,7 @@ function EditDialog({ item, entity, fields, onClose, queryKey }) {
 function DeleteConfirm({ item, entity, label, onClose, queryKey }) {
   const qc = useQueryClient();
   const mutation = useMutation({
-    mutationFn: () => base44.entities[entity].delete(item.id),
+    mutationFn: () => db[entity].delete(item.id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: [queryKey] }); onClose(); },
   });
   return (
@@ -272,48 +272,34 @@ export default function Inventory() {
 
   const { data: rawMaterials = [], isLoading: loadingRaw } = useQuery({
     queryKey: ['rawMaterials'],
-    queryFn: () => base44.entities.RawMaterial.list('name', 100),
+    queryFn: () => db.RawMaterial.list('name', 100),
   });
 
   const { data: distillationRuns = [] } = useQuery({
     queryKey: ['distillationRuns'],
-    queryFn: () => base44.entities.DistillationRun.list('date', 200),
+    queryFn: () => db.DistillationRun.list('date', 200),
   });
 
   const { data: bottlingRuns = [] } = useQuery({
     queryKey: ['bottlingRuns'],
-    queryFn: () => base44.entities.BottlingRun.list('date', 200),
+    queryFn: () => db.BottlingRun.list('date', 200),
   });
 
   const { data: dilutions = [] } = useQuery({
     queryKey: ['dilutions'],
-    queryFn: () => base44.entities.Dilution.list('date', 500),
+    queryFn: () => db.Dilution.list('date', 500),
   });
 
   const { data: finishedGoods = [], isLoading: loadingFinished } = useQuery({
     queryKey: ['finishedGoods'],
-    queryFn: () => base44.entities.FinishedGood.list('product_name', 100),
+    queryFn: () => db.FinishedGood.list('product_name', 100),
   });
 
-  const { data: sheetData = { dispatches: [] }, isLoading: loadingDispatches } = useQuery({
-    queryKey: ['sheetDispatches'],
-    queryFn: async () => {
-      const res = await base44.functions.invoke('readSheetDispatches', {});
-      return res.data;
-    },
-    staleTime: 60_000,
+  const { data: allDispatches = [], isLoading: loadingDispatches } = useQuery({
+    queryKey: ['dispatches'],
+    queryFn: () => db.Dispatch.list('-dispatch_date', 2000),
   });
-
-  const { data: sheet3PLData = { dispatches: [] }, isLoading: loading3PLDispatches } = useQuery({
-    queryKey: ['sheet3PLDispatches'],
-    queryFn: async () => {
-      const res = await base44.functions.invoke('read3PLSheetDispatches', {});
-      return res.data;
-    },
-    staleTime: 60_000,
-  });
-
-  const allDispatches = [...(sheetData.dispatches || []), ...(sheet3PLData.dispatches || [])];
+  const loading3PLDispatches = false;
 
   // Build dispatch totals per batch+product key
   const dispatchedByBatch = allDispatches.reduce((acc, d) => {
