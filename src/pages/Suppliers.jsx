@@ -11,6 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Pencil, Trash2, RefreshCw, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
+import Pagination from '@/components/shared/Pagination';
+
+const PAGE_SIZE = 50;
 
 const BLANK_FORM = {
   business_name: '',
@@ -28,12 +31,15 @@ export default function Suppliers() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(BLANK_FORM);
   const [syncing, setSyncing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
   const queryClient = useQueryClient();
 
   const suppliersQuery = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => db.Supplier.list('business_name', 100),
+    queryKey: ['suppliers', currentPage],
+    queryFn: () => db.Supplier.listPage('business_name', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+  const data = suppliersQuery.data?.data ?? [];
+  const totalCount = suppliersQuery.data?.count ?? 0;
 
   const openNew = () => {
     setEditingId(null);
@@ -124,7 +130,6 @@ export default function Suppliers() {
     }));
   };
 
-  const data = suppliersQuery.data || [];
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -283,6 +288,7 @@ export default function Suppliers() {
             </TableBody>
           </Table>
         </div>
+        <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
       </Card>
     </div>
   );

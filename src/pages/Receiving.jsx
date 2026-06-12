@@ -14,6 +14,9 @@ import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, 
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
+import Pagination from '@/components/shared/Pagination';
+
+const PAGE_SIZE = 50;
 
 const MATERIAL_TYPES = ['Ethanol', 'Botanicals', 'Packaging', 'Grain', 'Sugar', 'Water', 'Flavoring', 'Other'];
 const TRANSPORT_METHODS = ['road', 'courier', 'air', 'sea'];
@@ -66,19 +69,16 @@ export default function Receiving() {
   const [calcingDistance, setCalcingDistance] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
   const [viewingSlip, setViewingSlip] = useState(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const queryClient = useQueryClient();
 
-  const { refetch } = useQuery({
-    queryKey: ['receivings'],
-    queryFn: () => db.Receiving.list('-date_received', 50),
-  });
-
-  const isRefreshing = usePullToRefresh(() => refetch());
-
   const receivingsQuery = useQuery({
-    queryKey: ['receivings'],
-    queryFn: () => db.Receiving.list('-date_received', 50),
+    queryKey: ['receivings', currentPage],
+    queryFn: () => db.Receiving.listPage('-date_received', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+
+  const { refetch } = receivingsQuery;
+  const isRefreshing = usePullToRefresh(() => refetch());
 
   const suppliersQuery = useQuery({
     queryKey: ['suppliers'],
@@ -366,7 +366,8 @@ export default function Receiving() {
   });
 
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const data = receivingsQuery.data || [];
+  const data = receivingsQuery.data?.data ?? [];
+  const totalCount = receivingsQuery.data?.count ?? 0;
   const isLoading = receivingsQuery.isLoading;
 
   return (
@@ -604,6 +605,8 @@ export default function Receiving() {
           </Table>
         </div>
       </Card>
+
+      <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
 
       {/* Packing Slip Viewer */}
       <PackingSlipViewer url={viewingSlip} onClose={() => setViewingSlip(null)} />

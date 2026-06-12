@@ -14,6 +14,9 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
+import Pagination from '@/components/shared/Pagination';
+
+const PAGE_SIZE = 50;
 
 
 const BLANK_ETHANOL = {
@@ -48,15 +51,18 @@ export default function Dilutions() {
   const [ethanolForm, setEthanolForm] = useState(BLANK_ETHANOL);
   const [heartsForm, setHeartsForm] = useState(BLANK_HEARTS);
   const [editingDilution, setEditingDilution] = useState(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const queryClient = useQueryClient();
 
   const setE = (f, v) => setEthanolForm(p => ({ ...p, [f]: v }));
   const setH = (f, v) => setHeartsForm(p => ({ ...p, [f]: v }));
 
-  const { data: entityDilutions = [], isLoading } = useQuery({
-    queryKey: ['dilutions'],
-    queryFn: () => db.Dilution.list('-date', 50),
+  const { data: dilutionPage = { data: [], count: 0 }, isLoading } = useQuery({
+    queryKey: ['dilutions', currentPage],
+    queryFn: () => db.Dilution.listPage('-date', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+  const entityDilutions = dilutionPage.data ?? [];
+  const totalCount = dilutionPage.count ?? 0;
 
   const { data: sheetData } = useQuery({
     queryKey: ['dilutions-sheet'],
@@ -696,6 +702,7 @@ export default function Dilutions() {
             </TableBody>
           </Table>
         </div>
+        <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
       </Card>
 
       {/* Edit Dialog */}

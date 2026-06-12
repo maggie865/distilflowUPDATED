@@ -12,8 +12,10 @@ import { Plus, Trash2, Users, MapPin, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import AddressAutocomplete from '@/components/shared/AddressAutocomplete';
+import Pagination from '@/components/shared/Pagination';
 
 const EMPTY_FORM = { business_name: '', delivery_address: '' };
+const PAGE_SIZE = 50;
 
 export default function Customers() {
   const [showForm, setShowForm] = useState(false);
@@ -21,17 +23,21 @@ export default function Customers() {
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [currentPage, setCurrentPage] = useState(0);
   const queryClient = useQueryClient();
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => db.Customer.list('business_name', 200),
+  const { data: pageResult = { data: [], count: 0 } } = useQuery({
+    queryKey: ['customers', currentPage],
+    queryFn: () => db.Customer.listPage('business_name', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+  const customers = pageResult.data ?? [];
+  const totalCount = pageResult.count ?? 0;
 
   const createMutation = useMutation({
     mutationFn: () => db.Customer.create(form),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setCurrentPage(0);
       setShowForm(false);
       setForm(EMPTY_FORM);
       toast.success('Customer added');
@@ -75,7 +81,7 @@ export default function Customers() {
             <Users className="w-4 h-4 text-primary" />
             <span className="text-xs font-medium text-muted-foreground">Total Customers</span>
           </div>
-          <p className="text-2xl font-bold font-display text-primary">{customers.length}</p>
+          <p className="text-2xl font-bold font-display text-primary">{totalCount}</p>
         </div>
       </div>
 
@@ -120,6 +126,7 @@ export default function Customers() {
             ))}
           </TableBody>
         </Table>
+        <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
       </Card>
 
       {/* Add Customer Dialog */}

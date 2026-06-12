@@ -13,6 +13,9 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
+import Pagination from '@/components/shared/Pagination';
+
+const PAGE_SIZE = 50;
 
 const TYPES = ['ethanol', 'botanical', 'grain', 'sugar', 'water', 'flavoring', 'other'];
 const UNITS = ['litres', 'kg', 'units'];
@@ -134,6 +137,7 @@ export default function RawMaterials() {
   const [deleteItem, setDeleteItem] = useState(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(0);
   const queryClient = useQueryClient();
 
   const { data: materials = [], isLoading } = useQuery({
@@ -168,13 +172,14 @@ export default function RawMaterials() {
     },
   });
 
-  const filtered = materials.filter(m => {
+  const allFiltered = materials.filter(m => {
     const matchSearch = !search || m.name?.toLowerCase().includes(search.toLowerCase()) ||
       m.supplier?.toLowerCase().includes(search.toLowerCase()) ||
       m.batch_number?.toLowerCase().includes(search.toLowerCase());
     const matchType = typeFilter === 'all' || m.type === typeFilter;
     return matchSearch && matchType;
   });
+  const filtered = allFiltered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
   return (
     <div className="pb-20 md:pb-0">
@@ -204,10 +209,10 @@ export default function RawMaterials() {
             className="pl-9"
             placeholder="Search by name, supplier or lot code..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setCurrentPage(0); }}
           />
         </div>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <Select value={typeFilter} onValueChange={v => { setTypeFilter(v); setCurrentPage(0); }}>
           <SelectTrigger className="w-full sm:w-44">
             <SelectValue placeholder="All types" />
           </SelectTrigger>
@@ -228,7 +233,7 @@ export default function RawMaterials() {
           return (
             <button
               key={type}
-              onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
+              onClick={() => { setTypeFilter(typeFilter === type ? 'all' : type); setCurrentPage(0); }}
               className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                 typeFilter === type
                   ? 'bg-primary text-primary-foreground border-primary'
@@ -315,6 +320,7 @@ export default function RawMaterials() {
             </TableBody>
           </Table>
         </div>
+        <Pagination currentPage={currentPage} totalCount={allFiltered.length} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
       </Card>
 
       {/* Edit Dialog */}

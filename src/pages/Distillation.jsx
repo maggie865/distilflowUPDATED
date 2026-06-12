@@ -15,6 +15,9 @@ import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
+import Pagination from '@/components/shared/Pagination';
+
+const PAGE_SIZE = 50;
 import CompleteDistillationDialog from '@/components/distillation/CompleteDistillationDialog';
 import CreateBatchDialog from '@/components/distillation/CreateBatchDialog';
 import BatchManagement from '@/components/distillation/BatchManagement';
@@ -38,6 +41,7 @@ const EMPTY_FORM = {
 export default function Distillation() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [runToComplete, setRunToComplete] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);

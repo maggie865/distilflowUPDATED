@@ -17,6 +17,18 @@ function entity(table) {
       return data;
     },
 
+    async listPage(orderBy = 'created_at', limit = 50, offset = 0) {
+      const ascending = !orderBy.startsWith('-');
+      const col = orderBy.replace(/^-/, '');
+      const { data, error, count } = await supabase
+        .from(table)
+        .select('*', { count: 'exact' })
+        .order(col, { ascending })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return { data, count };
+    },
+
     // Exact match filter (case-sensitive)
     async filter(filters = {}) {
       let q = supabase.from(table).select('*');
