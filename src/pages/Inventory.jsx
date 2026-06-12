@@ -540,7 +540,14 @@ export default function Inventory() {
   // Build received quantities per material name from Receiving records
   const receivedByName = allReceivings.reduce((acc, r) => {
     const key = (r.material_name || '').toLowerCase().trim();
-    if (!acc[key]) acc[key] = { quantity: 0, lals: 0, unit: r.unit };
+    if (!acc[key]) acc[key] = {
+      quantity: 0,
+      lals: 0,
+      unit: r.unit,
+      // Normalise material_type to lowercase to match RawMaterial.type
+      type: (r.material_type || 'other').toLowerCase(),
+      abv_percent: r.abv_percent,
+    };
     acc[key].quantity += r.quantity || 0;
     acc[key].lals += r.lals || 0;
     return acc;
@@ -552,14 +559,16 @@ export default function Inventory() {
   const receivingOnlyMaterials = receivingMaterialNames
     .filter(k => !rawMaterialNames.includes(k))
     .map(k => {
+      const recv = receivedByName[k];
       const sample = allReceivings.find(r => (r.material_name || '').toLowerCase().trim() === k);
       return {
         id: 'recv-' + k,
         name: sample?.material_name || k,
-        type: (sample?.material_type || 'other').toLowerCase(),
-        quantity: receivedByName[k].quantity,
-        lals: receivedByName[k].lals,
-        unit: receivedByName[k].unit || 'units',
+        type: recv.type || 'other',
+        quantity: recv.quantity,
+        lals: recv.lals,
+        unit: recv.unit || 'units',
+        abv_percent: recv.abv_percent,
         _fromReceiving: true,
       };
     });
