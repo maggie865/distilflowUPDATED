@@ -277,7 +277,7 @@ export default function Receiving() {
       const payload = buildPayload(data);
       await db.Receiving.create(payload);
 
-      const existing = await db.RawMaterial.filter({ name: data.material_name });
+      const existing = await db.RawMaterial.filterIlike({ name: data.material_name });
       if (existing.length > 0) {
         const mat = existing[0];
         const newQty = (mat.quantity || 0) + parseFloat(data.quantity);
@@ -336,7 +336,7 @@ export default function Receiving() {
 
   const deleteMutation = useMutation({
     mutationFn: async (record) => {
-      const existing = await db.RawMaterial.filter({ name: record.material_name });
+      const existing = await db.RawMaterial.filterIlike({ name: record.material_name });
       if (existing.length > 0) {
         const mat = existing[0];
         const newQty = Math.max(0, (mat.quantity || 0) - (record.quantity || 0));
