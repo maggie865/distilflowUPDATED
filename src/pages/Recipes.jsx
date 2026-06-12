@@ -311,7 +311,7 @@ export default function Recipes() {
                           </SelectItem>
                         ))}
                         {stockIngredients.length === 0 && (
-                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">No stock items found</div>
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">No botanicals in stock — receive items tagged as 'Botanical' first</div>
                         )}
                       </SelectContent>
                     </Select>
