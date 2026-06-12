@@ -640,7 +640,11 @@ export default function Inventory() {
 
     const nameLower = m.name?.toLowerCase() || '';
 
-    if (m.type === 'ethanol') {
+    // Use normalised type — receivedByName already has normalised types via normaliseType()
+    // m.type may still have raw values like 'botanicals' for receiving-only items
+    const effectiveType = (received?.type) || normaliseType(m.type);
+
+    if (effectiveType === 'ethanol') {
       const isLactonol = nameLower.includes('lactonol');
       const isEna = nameLower.includes('extra neutral') || nameLower.includes('ena');
       let consumed = 0;
@@ -660,7 +664,7 @@ export default function Inventory() {
     }
 
     // Deduct botanicals — case-insensitive exact then partial match
-    const normType = (m.type || '').toLowerCase();
+    const normType = effectiveType;
     if (normType === 'botanical') {
       // Both sides lowercased — recipe ingredients stored with capitals, received items lowercase
       const exactConsumed = botanicalConsumedByName[nameLower];
