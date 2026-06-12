@@ -73,10 +73,12 @@ export default function Distillation() {
     queryFn: () => db.RawMaterial.list('created_date', 500),
   });
 
-  const { data: runs = [], isLoading } = useQuery({
-    queryKey: ['distillationRuns'],
-    queryFn: () => db.DistillationRun.list('-date', 50),
+  const { data: runsPage = { data: [], count: 0 }, isLoading } = useQuery({
+    queryKey: ['distillationRuns', currentPage],
+    queryFn: () => db.DistillationRun.listPage('-date', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+  const runs = runsPage.data ?? [];
+  const runsTotal = runsPage.count ?? 0;
 
   const { data: ethanolMaterials = [] } = useQuery({
     queryKey: ['rawMaterials-ethanol'],
@@ -883,6 +885,8 @@ export default function Distillation() {
           </Table>
         </div>
       </Card>
+
+      <Pagination currentPage={currentPage} totalCount={runsTotal} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
 
       <CompleteDistillationDialog
         run={runToComplete}
