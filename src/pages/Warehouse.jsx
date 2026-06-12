@@ -77,16 +77,10 @@ export default function Warehouse() {
     queryFn: () => db.Customer.list('business_name', 200),
   });
 
-  const { data: sheetData = { dispatches: [] } } = useQuery({
-    queryKey: ['3plSheetDispatches'],
-    queryFn: async () => {
-      // Sheet 3PL dispatch reading removed — data now in Supabase
-      return { dispatches: [] };
-    },
-    staleTime: 60_000,
+  const { data: warehouseDispatches = [] } = useQuery({
+    queryKey: ['warehouseDispatches'],
+    queryFn: () => db.Dispatch.filter({ dispatched_from: 'Auckland 3PL' }),
   });
-
-  const warehouseDispatches = sheetData.dispatches || [];
 
   const sellableGoods = finishedGoods.filter(fg => !fg.product_name?.includes('Tasting'));
   const selectedFG = finishedGoods.find(fg => fg.id === selectedFGId);
@@ -192,6 +186,25 @@ export default function Warehouse() {
 
 
 
+      // Save dispatch record
+      await db.Dispatch.create({
+        dispatch_date: dispatchForm.dispatch_date,
+        customer_name: dispatchForm.customer_name,
+        customer_address: dispatchForm.customer_address,
+        product_name: ws.product_name,
+        batch_number: ws.batch_number,
+        bottle_size_ml: ws.bottle_size_ml,
+        quantity_bottles: dispatchQty,
+        total_lals: parseFloat(lals.toFixed(4)),
+        parcel_weight_kg: weight,
+        transport_distance_km: distance || undefined,
+        transport_method: method,
+        co2e_kg: co2e > 0 ? parseFloat(co2e.toFixed(3)) : undefined,
+        status: dispatchForm.status || 'dispatched',
+        notes: dispatchForm.notes || undefined,
+        dispatched_from: 'Auckland 3PL',
+      });
+
       // Deduct from WarehouseStock
       const newQty = ws.quantity_bottles - dispatchQty;
       if (newQty <= 0) {
@@ -206,11 +219,11 @@ export default function Warehouse() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['warehouseStock'] });
-      queryClient.invalidateQueries({ queryKey: ['3plSheetDispatches'] });
+      queryClient.invalidateQueries({ queryKey: ['warehouseDispatches'] });
       setShowDispatch(false);
       setDispatchForm(EMPTY_DISPATCH);
       setSelectedWSId('');
-      toast.success('Dispatch recorded and synced to Google Sheet');
+      toast.success('Dispatch recorded successfully');
     },
   });
 
