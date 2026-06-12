@@ -50,11 +50,47 @@ export default function Recipes() {
     queryFn: () => db.RawMaterial.list('name', 500),
   });
 
-  // Unique material names from stock (excluding ethanol/water)
+  const { data: allReceivings = [] } = useQuery({
+    queryKey: ['receivings'],
+    queryFn: () => db.Receiving.list('-date_received', 2000),
+  });
+
+  // Only items tagged botanical (handles 'botanical', 'botanicals', capitalised variants)
   const stockIngredients = [...new Map(
     rawMaterials
-      .filter(m => m.type !== 'ethanol' && m.type !== 'water')
+      .filter(m => (m.type || '').toLowerCase().startsWith('botanical'))
       .map(m => [m.name, m])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Botanicals from receiving records (handles 'Botanicals' type from Receiving)
+  const receivingBotanicals = [...new Map(
+    allReceivings
+      .filter(r => (r.material_type || '').toLowerCase().startsWith('botanical'))
+      .map(r => [r.material_name, { name: r.material_name, unit: r.unit, quantity: 0 }])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Merged: RawMaterial botanicals + Receiving botanicals (deduplicated by name)
+  const allBotanicalOptions = [...new Map(
+    [...stockIngredients, ...receivingBotanicals].map(m => [m.name, m])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Packaging from RawMaterial stock
+  const stockPackaging = [...new Map(
+    rawMaterials
+      .filter(m => (m.type || '').toLowerCase() === 'packaging')
+      .map(m => [m.name, m])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Packaging from Receiving records (catches items not in RawMaterial)
+  const receivingPackaging = [...new Map(
+    allReceivings
+      .filter(r => (r.material_type || '').toLowerCase() === 'packaging')
+      .map(r => [r.material_name, { name: r.material_name, unit: r.unit, quantity: 0 }])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Merged packaging options
+  const allPackagingOptions = [...new Map(
+    [...stockPackaging, ...receivingPackaging].map(m => [m.name, m])
   ).values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
@@ -293,25 +329,29 @@ export default function Recipes() {
                     <Select
                       value={ing.name}
                       onValueChange={val => {
-                        const match = stockIngredients.find(m => m.name === val);
+                        const match = allBotanicalOptions.find(m => m.name === val);
                         setIngredient(i, 'name', val);
                         if (match?.unit) setIngredient(i, 'unit', match.unit);
                       }}
                     >
                       <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Select from stock…" />
+                        <SelectValue placeholder="Select botanical from stock…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {stockIngredients.map(m => (
-                          <SelectItem key={m.id} value={m.name}>
+                        {allBotanicalOptions.map(m => (
+                          <SelectItem key={m.name} value={m.name}>
                             <span>{m.name}</span>
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              ({m.quantity} {m.unit} in stock)
-                            </span>
+                            {m.quantity > 0 && (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                ({m.quantity} {m.unit} in stock)
+                              </span>
+                            )}
                           </SelectItem>
                         ))}
-                        {stockIngredients.length === 0 && (
-                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">No botanicals in stock — receive items tagged as 'Botanical' first</div>
+                        {allBotanicalOptions.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                            No botanicals in stock — receive items tagged as Botanicals first
+                          </div>
                         )}
                       </SelectContent>
                     </Select>
@@ -348,27 +388,42 @@ export default function Recipes() {
                 <p className="text-xs text-muted-foreground text-center py-2">No packaging items added yet</p>
               )}
               {(form.packaging || []).map((p, i) => (
-                <div key={i} className="grid grid-cols-[1fr_70px_80px_auto] gap-2 items-end">
+                <div key={i} className="grid grid-cols-[1fr_80px_auto] gap-2 items-end">
                   <div>
-                    {i === 0 && <Label className="text-xs">Item Name</Label>}
-                    <Input value={p.name} onChange={e => setPackaging(i, 'name', e.target.value)} placeholder="e.g. 700ml Bottle" />
-                  </div>
-                  <div>
-                    {i === 0 && <Label className="text-xs">Qty</Label>}
-                    <Input type="number" step="0.01" value={p.quantity} onChange={e => setPackaging(i, 'quantity', e.target.value)} placeholder="1" />
-                  </div>
-                  <div>
-                    {i === 0 && <Label className="text-xs">Type</Label>}
-                    <Select value={p.type} onValueChange={val => setPackaging(i, 'type', val)}>
-                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                    {i === 0 && <Label className="text-xs">Item from stock</Label>}
+                    <Select
+                      value={p.name}
+                      onValueChange={val => {
+                        const match = allPackagingOptions.find(m => m.name === val);
+                        setPackaging(i, 'name', val);
+                        if (match?.unit) setPackaging(i, 'unit', match.unit);
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select packaging from stock…" />
+                      </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="bottle">Bottle</SelectItem>
-                        <SelectItem value="closure">Closure</SelectItem>
-                        <SelectItem value="label">Label</SelectItem>
-                        <SelectItem value="carton">Carton</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        {allPackagingOptions.map(m => (
+                          <SelectItem key={m.name} value={m.name}>
+                            <span>{m.name}</span>
+                            {m.quantity > 0 && (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                ({m.quantity} {m.unit} in stock)
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                        {allPackagingOptions.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                            No packaging in stock — receive items tagged as Packaging first
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    {i === 0 && <Label className="text-xs">Qty per bottle</Label>}
+                    <Input type="number" step="0.01" value={p.quantity} onChange={e => setPackaging(i, 'quantity', e.target.value)} placeholder="1" />
                   </div>
                   <div className={i === 0 ? 'mt-5' : ''}>
                     <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:text-destructive" onClick={() => removePackaging(i)}>
