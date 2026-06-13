@@ -72,7 +72,7 @@ export default function Sales() {
 
   const { data: finishedGoods = [] } = useQuery({
     queryKey: ['finishedGoods'],
-    queryFn: () => db.FinishedGood.list('-created_date', 200),
+    queryFn: () => db.FinishedGood.list('-created_at', 200),
   });
 
   const { data: customers = [] } = useQuery({
