@@ -11,9 +11,21 @@ import StatusBadge from '@/components/shared/StatusBadge';
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  const { data: rawMaterials = [] } = useQuery({
-    queryKey: ['rawMaterials'],
-    queryFn: () => base44.entities.RawMaterial.list('-created_at', 100),
+  const { data: allReceivings = [] } = useQuery({
+    queryKey: ['receivings'],
+    queryFn: () => base44.entities.Receiving.list('-date_received', 2000),
+  });
+  const { data: bottlingRuns = [] } = useQuery({
+    queryKey: ['bottlingRuns'],
+    queryFn: () => base44.entities.BottlingRun.list('-date', 200),
+  });
+  const { data: dispatches = [] } = useQuery({
+    queryKey: ['dispatches'],
+    queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 2000),
+  });
+  const { data: distillationRuns = [] } = useQuery({
+    queryKey: ['distillationRuns'],
+    queryFn: () => base44.entities.DistillationRun.list('-date', 500),
   });
   const { data: dilutions = [] } = useQuery({
     queryKey: ['dilutions'],
@@ -27,37 +39,58 @@ export default function Dashboard() {
     queryKey: ['bottlings'],
     queryFn: () => base44.entities.BottlingRun.list('-date', 5),
   });
-  const { data: finishedGoods = [] } = useQuery({
-    queryKey: ['finishedGoods'],
-    queryFn: () => base44.entities.FinishedGood.list('-created_at', 100),
-  });
   const { data: thresholds = [] } = useQuery({
     queryKey: ['stockThresholds'],
     queryFn: () => base44.entities.StockThreshold.list('material_name', 200),
   });
 
-  const totalEthanolLitres = rawMaterials
-    .filter(m => m.type === 'ethanol')
-    .reduce((sum, m) => sum + (m.quantity || 0), 0);
-  const totalLALs = rawMaterials
-    .filter(m => m.type === 'ethanol')
-    .reduce((sum, m) => sum + (m.lals || 0), 0);
-  const totalBottles = finishedGoods.reduce((sum, g) => sum + (g.quantity_bottles || 0), 0);
-  const totalFinishedLALs = finishedGoods.reduce((sum, g) => sum + (g.total_lals || 0), 0);
+  // ── Stats derived from source records ────────────────────────────────────
 
-  // Compute low stock alerts
+  // Ethanol: received minus consumed in distillation
+  const totalEthanolReceived = allReceivings
+    .filter(r => (r.material_type || '').toLowerCase() === 'ethanol')
+    .reduce((sum, r) => sum + (r.quantity || 0), 0);
+  const totalEthanolConsumed = distillationRuns
+    .reduce((sum, r) => sum + (r.input_volume || 0), 0);
+  const totalEthanolLitres = Math.max(0, totalEthanolReceived - totalEthanolConsumed);
+
+  // LALs: received minus consumed
+  const totalLALsReceived = allReceivings
+    .filter(r => (r.material_type || '').toLowerCase() === 'ethanol')
+    .reduce((sum, r) => sum + (r.lals || 0), 0);
+  const totalLALsConsumed = distillationRuns
+    .reduce((sum, r) => sum + (r.input_lals || 0), 0);
+  const totalLALs = Math.max(0, totalLALsReceived - totalLALsConsumed);
+
+  // Bottles: produced minus dispatched
+  const totalBottlesProduced = bottlingRuns.reduce((sum, r) => sum + (r.bottles_produced || 0), 0);
+  const totalBottlesDispatched = dispatches.reduce((sum, d) => sum + (d.quantity_bottles || 0), 0);
+  const totalBottles = Math.max(0, totalBottlesProduced - totalBottlesDispatched);
+
+  // Unique materials received
+  const uniqueMaterials = new Set(
+    allReceivings.map(r => (r.material_name || '').toLowerCase().trim())
+  ).size;
+
+  // Low stock alerts
+  const receivedTotalsByName = allReceivings.reduce((acc, r) => {
+    const key = (r.material_name || '').toLowerCase().trim();
+    acc[key] = (acc[key] || 0) + (r.quantity || 0);
+    return acc;
+  }, {});
+
   const lowStockAlerts = thresholds
     .map(t => {
-      const material = rawMaterials.find(m => m.id === t.raw_material_id);
-      if (!material) return null;
-      const qty = material.quantity || 0;
+      const key = (t.material_name || '').toLowerCase().trim();
+      const qty = receivedTotalsByName[key] || 0;
       if (qty <= t.threshold) {
-        return { name: material.name, qty, threshold: t.threshold, unit: t.unit, type: material.type };
+        return { name: t.material_name, qty, threshold: t.threshold, unit: t.unit };
       }
       return null;
     })
     .filter(Boolean);
 
+  // Recent activity
   const recentActivity = [
     ...dilutions.map(d => ({ ...d, _type: 'Dilution', _date: d.date })),
     ...distillations.map(d => ({ ...d, _type: 'Distillation', _date: d.date })),
@@ -68,7 +101,6 @@ export default function Dashboard() {
     <div className="pb-20 md:pb-0">
       <PageHeader title="Dashboard" subtitle="Overview of your distillery operations" />
 
-      {/* Low stock alerts banner */}
       {lowStockAlerts.length > 0 && (
         <div
           className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 cursor-pointer hover:bg-amber-100 transition-colors"
@@ -92,35 +124,33 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
-          title="Raw Materials"
-          value={rawMaterials.length}
-          subtitle="Items in stock"
+          title="Materials Received"
+          value={uniqueMaterials}
+          subtitle="Unique items in stock"
           icon={Warehouse}
         />
         <StatCard
           title="Ethanol Stock"
           value={`${totalEthanolLitres.toFixed(1)}L`}
-          subtitle={`${totalLALs.toFixed(2)} LALs`}
+          subtitle={`${totalLALs.toFixed(2)} LALs remaining`}
           icon={Droplets}
         />
         <StatCard
-          title="Finished Goods"
-          value={totalBottles}
-          subtitle="Bottles in stock"
+          title="Bottles in Stock"
+          value={totalBottles.toLocaleString()}
+          subtitle={`${totalBottlesProduced.toLocaleString()} produced, ${totalBottlesDispatched.toLocaleString()} dispatched`}
           icon={Wine}
         />
         <StatCard
-          title="Finished LALs"
-          value={totalFinishedLALs.toFixed(2)}
-          subtitle="Total LALs bottled"
+          title="LALs Produced"
+          value={totalLALsReceived.toFixed(2)}
+          subtitle={`${totalLALsConsumed.toFixed(2)} consumed in distillation`}
           icon={TrendingUp}
         />
       </div>
 
-      {/* Recent Activity */}
       <Card className="p-0 overflow-hidden">
         <div className="p-5 border-b border-border">
           <h2 className="font-display text-lg font-semibold">Recent Activity</h2>
