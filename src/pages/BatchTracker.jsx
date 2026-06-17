@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Search, ChevronDown, ChevronUp, Flame, Wine, Droplets, Package2, FlaskConical, Leaf } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Flame, Wine, Droplets, Package2, FlaskConical, Leaf, Truck, Users, X } from 'lucide-react';
 import { format } from 'date-fns';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
@@ -57,8 +57,16 @@ function LotTag({ icon: Icon, color, label, value }) {
   );
 }
 
-function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
+function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatches = [] }) {
   const [expanded, setExpanded] = useState(false);
+  const [showCustomers, setShowCustomers] = useState(false);
+
+  // Customer dispatch data for this batch
+  const batchDispatches = dispatches.filter(d =>
+    (d.batch_number || '').toLowerCase().trim() === batchNumber.toLowerCase().trim()
+  );
+  const totalDispatched = batchDispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
+  const uniqueCustomers = [...new Set(batchDispatches.map(d => d.customer_name).filter(Boolean))];
 
   // Summary stats
   const totalOutLALs = distillations.reduce((s, d) => s + (d.output_lals || 0), 0);
@@ -125,12 +133,21 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {latestDate && (
             <span className="text-xs text-muted-foreground hidden sm:block">
               {format(new Date(latestDate), 'MMM d, yyyy')}
             </span>
           )}
+          <button
+            onClick={e => { e.stopPropagation(); setShowCustomers(true); }}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Who received this?</span>
+            <span className="sm:hidden">Customers</span>
+            {totalDispatched > 0 && <span className="font-bold">{totalDispatched}</span>}
+          </button>
           {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </div>
       </button>
@@ -215,6 +232,75 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches }) {
         </div>
       )}
     </Card>
+    {/* Customer dispatch modal */}
+    {showCustomers && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+        onClick={() => setShowCustomers(false)}
+      >
+        <div
+          className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div>
+              <h2 className="font-semibold text-base">Who received batch {batchNumber}?</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {batchDispatches.length === 0
+                  ? 'No dispatches recorded for this batch'
+                  : `${totalDispatched} bottles dispatched to ${uniqueCustomers.length} customer${uniqueCustomers.length !== 1 ? 's' : ''}`}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCustomers(false)}
+              className="p-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {batchDispatches.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">
+                <Truck className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                No dispatch records found for this batch number.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-medium text-muted-foreground text-xs">Customer</th>
+                    <th className="text-left px-3 py-3 font-medium text-muted-foreground text-xs">Date</th>
+                    <th className="text-left px-3 py-3 font-medium text-muted-foreground text-xs hidden sm:table-cell">Product</th>
+                    <th className="text-right px-5 py-3 font-medium text-muted-foreground text-xs">Bottles</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchDispatches.map((d, i) => (
+                    <tr key={d.id || i} className="border-t border-border">
+                      <td className="px-5 py-3 font-medium">{d.customer_name || '—'}</td>
+                      <td className="px-3 py-3 text-muted-foreground text-xs">
+                        {d.dispatch_date ? format(new Date(d.dispatch_date), 'MMM d, yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-muted-foreground text-xs hidden sm:table-cell">
+                        {d.product_name || '—'}{d.bottle_size_ml ? ` ${d.bottle_size_ml}ml` : ''}
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold">{d.quantity_bottles ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/30">
+                    <td colSpan={2} className="px-5 py-3 font-semibold text-xs">Total</td>
+                    <td className="hidden sm:table-cell" />
+                    <td className="px-5 py-3 text-right font-bold text-sm">{totalDispatched}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
   );
 }
 
@@ -223,17 +309,22 @@ export default function BatchTracker() {
 
   const { data: distillations = [], isLoading: loadingD } = useQuery({
     queryKey: ['distillationRuns'],
-    queryFn: () => db.DistillationRun.list('-date', 200),
+    queryFn: () => base44.entities.DistillationRun.list('-date', 200),
   });
 
   const { data: bottlings = [], isLoading: loadingB } = useQuery({
     queryKey: ['bottlingRuns'],
-    queryFn: () => db.BottlingRun.list('-date', 200),
+    queryFn: () => base44.entities.BottlingRun.list('-date', 200),
   });
 
   const { data: subBatches = [] } = useQuery({
     queryKey: ['subBatches'],
-    queryFn: () => db.SubBatch.list('-date', 500),
+    queryFn: () => base44.entities.SubBatch.list('-date', 500),
+  });
+
+  const { data: dispatches = [] } = useQuery({
+    queryKey: ['dispatches'],
+    queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 2000),
   });
 
   const isLoading = loadingD || loadingB;
@@ -300,6 +391,7 @@ export default function BatchTracker() {
               distillations={ds}
               bottlings={bs}
               subBatches={subBatches.filter(s => s.master_batch_code === batchNumber)}
+              dispatches={dispatches}
             />
           ))}
         </div>
