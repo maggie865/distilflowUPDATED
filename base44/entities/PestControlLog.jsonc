@@ -1,0 +1,13 @@
+{
+  "name": "PestControlLog",
+  "fields": [
+    { "name": "date", "type": "string" },
+    { "name": "trap_id", "type": "string" },
+    { "name": "inspected_by", "type": "string" },
+    { "name": "activity", "type": "string", "enum": ["checked_clear","trapped","reset","rebaited","damaged","removed"] },
+    { "name": "pest_type", "type": "string" },
+    { "name": "quantity", "type": "number" },
+    { "name": "bait_used", "type": "string" },
+    { "name": "notes", "type": "string" }
+  ]
+}
