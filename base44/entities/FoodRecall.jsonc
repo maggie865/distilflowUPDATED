@@ -1,0 +1,26 @@
+{
+  "name": "FoodRecall",
+  "fields": [
+    { "name": "recall_number", "type": "string" },
+    { "name": "product_name", "type": "string" },
+    { "name": "batch_numbers", "type": "string" },
+    { "name": "date_initiated", "type": "string" },
+    { "name": "reason_type", "type": "string", "enum": ["allergen","foreign_matter","microbiological","chemical","other"] },
+    { "name": "reason_detail", "type": "string" },
+    { "name": "recall_level", "type": "string", "enum": ["consumer","trade","none"] },
+    { "name": "status", "type": "string", "enum": ["investigating","informed","assessed","checked","communicating","auditing","closed"] },
+    { "name": "bottles_affected", "type": "number" },
+    { "name": "bottles_recovered", "type": "number" },
+    { "name": "mpi_notified_at", "type": "string" },
+    { "name": "mpi_case_officer", "type": "string" },
+    { "name": "distribution_list", "type": "string" },
+    { "name": "corrective_actions", "type": "string" },
+    { "name": "step1_notes", "type": "string" },
+    { "name": "step2_notes", "type": "string" },
+    { "name": "step3_notes", "type": "string" },
+    { "name": "step4_notes", "type": "string" },
+    { "name": "step5_notes", "type": "string" },
+    { "name": "step6_notes", "type": "string" },
+    { "name": "notes", "type": "string" }
+  ]
+}
