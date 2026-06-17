@@ -49,9 +49,15 @@ export default function Reports() {
   const rangeStart = startDate ? parseISO(startDate) : startOfMonth(new Date());
   const rangeEnd = endDate ? parseISO(endDate) : new Date();
 
+  const rangeEndInclusive = new Date(rangeEnd);
+  rangeEndInclusive.setHours(23, 59, 59, 999);
+
   const inRange = (dateStr) => {
     if (!dateStr) return false;
-    try { return isWithinInterval(parseISO(dateStr), { start: rangeStart, end: rangeEnd }); } catch { return false; }
+    try {
+      const d = parseISO(dateStr);
+      return d >= rangeStart && d <= rangeEndInclusive;
+    } catch { return false; }
   };
 
   // Filtered data for selected month
@@ -187,23 +193,8 @@ export default function Reports() {
   const totalCogsValue = cogBreakdown.reduce((s, c) => s + c.value, 0);
   const COGS_COLORS = ['#F97316', '#3B82F6', '#10B981', '#8B5CF6'];
 
-  // Distillation dumped data converted to wastage records
-  const completedDistillationRuns = distillationRuns.filter(r => r.status === 'completed' && r.dumped_volume && inRange(r.date));
-  const distillationDumpedWastage = completedDistillationRuns.map(r => ({
-    id: `distill-${r.id}`,
-    date: r.date,
-    product_name: r.product_name,
-    batch_number: r.batch_number,
-    volume: r.dumped_volume,
-    abv: r.dumped_abv,
-    lals: r.dumped_lals,
-    reason: r.dumped_notes || 'Distillation dump',
-    source: 'distillation',
-    run_id: r.id,
-  }));
-
-  // Combined wastage: manual records + distillation dumps
-  const combinedWastage = [...monthWastage, ...distillationDumpedWastage];
+  // Combined wastage: use WastageRecord entity only (distillation dumps are already stored there)
+  const combinedWastage = monthWastage;
 
   // Wastage stats
   const totalWastedLals = combinedWastage.reduce((s, w) => s + (w.lals || 0), 0);
@@ -235,13 +226,11 @@ export default function Reports() {
     const s = startOfMonth(d);
     const e = endOfMonth(d);
     const inM = (ds) => { try { return ds && isWithinInterval(parseISO(ds), { start: s, end: e }); } catch { return false; } };
-    const monthWastageData = wastage.filter(w => inM(w.date));
-    const monthDistillDumped = distillationRuns.filter(r => r.status === 'completed' && r.dumped_lals && inM(r.date)).reduce((acc, r) => acc + (r.dumped_lals || 0), 0);
     return {
       month: format(s, 'MMM yy'),
       received: receiving.filter(r => inM(r.date_received)).reduce((acc, r) => acc + (r.lals || 0), 0),
       dispatched: dispatches.filter(d => inM(d.dispatch_date)).reduce((acc, d) => acc + (d.quantity_bottles || 0), 0),
-      wasted: parseFloat((monthWastageData.reduce((acc, w) => acc + (w.lals || 0), 0) + monthDistillDumped).toFixed(3)),
+      wasted: parseFloat(wastage.filter(w => inM(w.date)).reduce((acc, w) => acc + (w.lals || 0), 0).toFixed(3)),
     };
   });
 
