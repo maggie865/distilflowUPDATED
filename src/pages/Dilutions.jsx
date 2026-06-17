@@ -16,7 +16,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import Pagination from '@/components/shared/Pagination';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 
 const BLANK_ETHANOL = {

@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import DeliveryMap from '@/components/sales/DeliveryMap';
+import Pagination from '@/components/shared/Pagination';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 
@@ -80,10 +81,15 @@ export default function Sales() {
     queryFn: () => db.Customer.list('business_name', 200),
   });
 
-  const { data: dispatches = [] } = useQuery({
-    queryKey: ['dispatches'],
-    queryFn: () => db.Dispatch.list('-dispatch_date', 1000),
+  const [currentPage, setCurrentPage] = useState(0);
+  const PAGE_SIZE = 100;
+
+  const { data: dispatchPage = { data: [], count: 0 }, isLoading: loadingDispatches } = useQuery({
+    queryKey: ['dispatches', currentPage],
+    queryFn: () => db.Dispatch.listPage('-dispatch_date', PAGE_SIZE, currentPage * PAGE_SIZE),
   });
+  const dispatches = dispatchPage.data ?? [];
+  const totalDispatchCount = dispatchPage.count ?? 0;
 
   // Only sellable stock (not tasting bottles)
   const sellableGoods = finishedGoods.filter(fg => !fg.product_name?.includes('Tasting'));
@@ -271,12 +277,22 @@ export default function Sales() {
     );
   });
 
-  // Summary stats
-   const totalBottlesDispatched = dispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
-   const totalLalsDispatched = dispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
-   const totalKm = dispatches.reduce((s, d) => s + (d.transport_distance_km || 0), 0);
-   const totalCO2e = dispatches.reduce((s, d) => s + (d.co2e_kg || 0), 0);
-   const uniqueCustomers = new Set(dispatches.map(d => d.customer_name)).size;
+  // Reset to first page when searching
+  const handleSearch = (val) => {
+    setSearch(val);
+    setCurrentPage(0);
+  };
+
+  // Summary stats — fetch all records unfiltered for accurate totals
+  const { data: allDispatches = [] } = useQuery({
+    queryKey: ['dispatches-all'],
+    queryFn: () => db.Dispatch.list('-dispatch_date', 5000),
+  });
+  const totalBottlesDispatched = allDispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
+  const totalLalsDispatched = allDispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
+  const totalKm = allDispatches.reduce((s, d) => s + (d.transport_distance_km || 0), 0);
+  const totalCO2e = allDispatches.reduce((s, d) => s + (d.co2e_kg || 0), 0);
+  const uniqueCustomers = new Set(allDispatches.map(d => d.customer_name)).size;
 
   return (
     <div className="pb-20 md:pb-0">
@@ -326,7 +342,7 @@ export default function Sales() {
             <Input
               placeholder="Search customer, product, batch…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => handleSearch(e.target.value)}
               className="pl-8 text-sm"
             />
           </div>
@@ -401,6 +417,7 @@ export default function Sales() {
             </TableBody>
           </Table>
         </div>
+        <Pagination currentPage={currentPage} totalCount={totalDispatchCount} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
       </Card>
 
       {/* New Dispatch Dialog */}
