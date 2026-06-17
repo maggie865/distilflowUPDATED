@@ -9,7 +9,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Plus, ChevronRight, ChevronDown, CheckCircle2, Clock, X, ExternalLink } from 'lucide-react';
+import { AlertTriangle, Plus, ChevronRight, ChevronDown, CheckCircle2, Clock, X, ExternalLink, FlaskConical, ClipboardList } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -36,7 +38,15 @@ const BLANK = {
   status: 'investigating', bottles_affected: '', bottles_recovered: '',
   mpi_notified_at: '', mpi_case_officer: '', distribution_list: '', corrective_actions: '',
   step1_notes: '', step2_notes: '', step3_notes: '', step4_notes: '', step5_notes: '', step6_notes: '',
-  notes: '',
+  notes: '', is_mock: false,
+};
+
+const BLANK_MOCK = {
+  recall_number: `MOCK-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+  product_name: '', batch_numbers: '', date_conducted: new Date().toISOString().split('T')[0],
+  scenario: '', conducted_by: '', outcome: '', time_to_complete_mins: '',
+  distribution_list_accurate: false, stock_located: false, mpi_contact_identified: false,
+  corrective_actions: '', notes: '', next_mock_due: '',
 };
 
 function RecallCard({ recall, dispatches, onEdit }) {
@@ -204,6 +214,55 @@ export default function FoodRecallManager() {
     queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 2000),
   });
 
+  const { data: masterBatches = [] } = useQuery({
+    queryKey: ['masterBatches'],
+    queryFn: () => base44.entities.MasterBatch.list('-date_started', 200),
+  });
+
+  const { data: bottlingRuns = [] } = useQuery({
+    queryKey: ['bottlingRuns'],
+    queryFn: () => base44.entities.BottlingRun.list('-date', 200),
+  });
+
+  const { data: mockRecalls = [], isLoading: loadingMocks } = useQuery({
+    queryKey: ['mockRecalls'],
+    queryFn: () => base44.entities.MockRecall.list('-date_conducted', 50),
+  });
+
+  const [mockOpen, setMockOpen] = useState(false);
+  const [mockForm, setMockForm] = useState(BLANK_MOCK);
+  const [editingMockId, setEditingMockId] = useState(null);
+  const [selectedBatches, setSelectedBatches] = useState([]);
+
+  // Build unique batch list from master batches + bottling runs
+  const allBatches = [
+    ...masterBatches.map(b => ({ code: b.batch_code, product: b.product_name, source: 'master' })),
+    ...bottlingRuns
+      .filter(b => b.batch_number && !masterBatches.find(m => m.batch_code === b.batch_number))
+      .map(b => ({ code: b.batch_number, product: b.product_name, source: 'bottling' })),
+  ].filter(b => b.code);
+
+  const setM = (k, v) => setMockForm(f => ({ ...f, [k]: v }));
+
+  const saveMockMutation = useMutation({
+    mutationFn: async (data) => {
+      const payload = { ...data, time_to_complete_mins: data.time_to_complete_mins ? parseInt(data.time_to_complete_mins) : undefined };
+      if (editingMockId) await base44.entities.MockRecall.update(editingMockId, payload);
+      else await base44.entities.MockRecall.create(payload);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mockRecalls'] });
+      setMockOpen(false); setEditingMockId(null); setMockForm(BLANK_MOCK);
+      toast.success(editingMockId ? 'Mock recall updated' : 'Mock recall logged');
+    },
+    onError: (e) => toast.error('Failed: ' + e.message),
+  });
+
+  const deleteMockMutation = useMutation({
+    mutationFn: (id) => base44.entities.MockRecall.delete(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mockRecalls'] }),
+  });
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const openNew = () => {
@@ -241,10 +300,21 @@ export default function FoodRecallManager() {
   return (
     <div className="pb-20 md:pb-0">
       <PageHeader title="Food Recall Manager" subtitle="MPI-compliant 6-step recall process">
+        <Button onClick={() => { setMockOpen(true); setEditingMockId(null); setMockForm({...BLANK_MOCK, recall_number: `MOCK-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`}); }} variant="outline" className="gap-2">
+          <ClipboardList className="w-4 h-4" /> Log Mock Recall
+        </Button>
         <Button onClick={openNew} className="gap-2 bg-destructive hover:bg-destructive/90">
           <AlertTriangle className="w-4 h-4" /> Initiate Recall
         </Button>
       </PageHeader>
+
+      <Tabs defaultValue="recalls">
+        <TabsList className="mb-5">
+          <TabsTrigger value="recalls" className="gap-2"><AlertTriangle className="w-4 h-4" /> Recalls</TabsTrigger>
+          <TabsTrigger value="mock" className="gap-2"><ClipboardList className="w-4 h-4" /> Mock Recalls</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="recalls">
 
       {activeRecalls.length > 0 && (
         <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4 flex items-center gap-3">
@@ -313,8 +383,35 @@ export default function FoodRecallManager() {
                 <Input value={form.product_name} onChange={e => set('product_name', e.target.value)} placeholder="e.g. London Dry Gin" className="mt-1" />
               </div>
               <div>
-                <Label>Affected batch numbers</Label>
-                <Input value={form.batch_numbers} onChange={e => set('batch_numbers', e.target.value)} placeholder="e.g. MB-001, MB-002" className="mt-1" />
+                <Label>Affected batches</Label>
+                <div className="mt-1 rounded-lg border border-border max-h-48 overflow-y-auto">
+                  {allBatches.length === 0 ? (
+                    <p className="text-xs text-muted-foreground p-3">No batches found — add distillation or bottling runs first</p>
+                  ) : allBatches.map(b => {
+                    const checked = (form.batch_numbers || '').split(',').map(s => s.trim()).includes(b.code);
+                    return (
+                      <label key={b.code} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer border-b border-border last:border-0">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(val) => {
+                            const current = (form.batch_numbers || '').split(',').map(s => s.trim()).filter(Boolean);
+                            const updated = val ? [...current, b.code] : current.filter(c => c !== b.code);
+                            set('batch_numbers', updated.join(', '));
+                            if (val && !form.product_name) set('product_name', b.product || '');
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-mono font-medium">{b.code}</p>
+                          <p className="text-xs text-muted-foreground truncate">{b.product}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{b.source}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {form.batch_numbers && (
+                  <p className="text-xs text-muted-foreground mt-1">Selected: {form.batch_numbers}</p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
