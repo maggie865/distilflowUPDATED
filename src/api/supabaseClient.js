@@ -18,8 +18,7 @@ function entity(entityName) {
   return {
     /** List all records, ordered by `orderBy` (prefix with - for desc). */
     async list(orderBy = 'created_date', limit = 1000) {
-      const order = orderBy.startsWith('-') ? orderBy.slice(1) : orderBy;
-      return ent.list(order, limit);
+      return ent.list(orderBy, limit);
     },
 
     /**
@@ -27,9 +26,8 @@ function entity(entityName) {
      * Base44 doesn't expose a native count+offset API so we fetch all and slice.
      */
     async listPage(orderBy = 'created_date', limit = 50, offset = 0) {
-      const order = orderBy.startsWith('-') ? orderBy.slice(1) : orderBy;
       // Fetch enough records to cover offset+limit, then slice
-      const allData = await ent.list(order, offset + limit + 500);
+      const allData = await ent.list(orderBy, offset + limit + 500);
       const total = allData.length;
       const data = allData.slice(offset, offset + limit);
       return { data, count: total };
