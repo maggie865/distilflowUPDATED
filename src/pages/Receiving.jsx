@@ -242,7 +242,7 @@ export default function Receiving() {
 
     return {
       material_name: data.material_name,
-      material_type: data.material_type,
+      material_type: data.material_type || undefined,
       quantity: parseFloat(data.quantity),
       unit: data.unit,
       abv_percent: data.abv_percent ? parseFloat(data.abv_percent) : undefined,
@@ -293,6 +293,10 @@ export default function Receiving() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!form.material_type) {
+      toast.error('Please select a material type');
+      return;
+    }
     if (editingId) {
       updateMutation.mutate(form);
     } else {
